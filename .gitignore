@@ -1,0 +1,30 @@
+# Secrets — never commit
+.env
+.env.prod
+.env.local
+.env.*.local
+
+# Backups — potentially contain PII, and are large
+backups/
+*.sql
+*.sql.gz
+
+# Local uploads
+uploads/
+
+# Deps + build artifacts (per-service; usually already in service-level gitignores)
+node_modules/
+dist/
+build/
+
+# Test runtime artifacts
+tests/test-results/
+tests/playwright-report/
+playwright-report/
+test-results/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp

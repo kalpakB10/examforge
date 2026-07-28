@@ -1,0 +1,368 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CorrectOption {
+  A
+  B
+  C
+  D
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum QuestionType {
+  MCQ
+  SUBJECTIVE
+}
+
+enum TimerMode {
+  FIXED_DURATION
+  PER_QUESTION
+}
+
+enum ExamStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+}
+enum PdfStatus {
+  NOT_REQUESTED
+  PENDING
+  READY
+  FAILED
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EXPIRED
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  ACCEPTED
+  REJECTED
+}
+
+enum UserRole {
+  TEACHER
+  STUDENT
+}
+
+model Class {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  createdBy   String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  defaultTemplateId   String?  @map("default_template_id")
+  defaultOrgSnapshot  Json?    @map("default_org_snapshot")
+
+  subjects Subject[]
+
+  @@map("classes")
+}
+
+model Subject {
+  id          String    @id @default(uuid())
+  classId     String?   @map("class_id")
+  name        String
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  class       Class?    @relation(fields: [classId], references: [id])
+  questions    Question[]
+  subSubjects  SubSubject[]
+  chapters     Chapter[]
+  exams        Exam[]
+  examHistory  ExamHistory[]
+
+  @@index([classId])
+  @@unique([classId, name])
+  @@map("subjects")
+}
+
+model SubSubject {
+  id          String   @id @default(uuid())
+  subjectId   String   @map("subject_id")
+  name        String
+  description String?
+  order       Int      @default(0)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  subject  Subject   @relation(fields: [subjectId], references: [id])
+  chapters Chapter[]
+
+  @@index([subjectId])
+  @@map("sub_subjects")
+}
+
+model Chapter {
+  id           String   @id @default(uuid())
+  subjectId    String   @map("subject_id")
+  subSubjectId String?  @map("sub_subject_id")
+  name         String
+  description  String?
+  totalMarks   Int      @default(90) @map("total_marks")
+  timeMinutes  Int      @default(90) @map("time_minutes")
+  order        Int      @default(0)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  subject    Subject     @relation(fields: [subjectId], references: [id])
+  subSubject SubSubject? @relation(fields: [subSubjectId], references: [id])
+  questions  Question[]
+
+  @@index([subjectId])
+  @@index([subSubjectId])
+  @@map("chapters")
+}
+
+model QuickTest {
+  id             String   @id @default(uuid())
+  code           String   @unique
+  title          String
+  chapterIds     String[] @map("chapter_ids")
+  timeMinutes    Int      @map("time_minutes")
+  totalMarks     Int      @map("total_marks")
+  shuffleQ       Boolean  @default(false) @map("shuffle_q")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdBy      String   @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  expiresAt      DateTime? @map("expires_at")
+
+  attempts QuickTestAttempt[]
+
+  @@map("quick_tests")
+}
+
+model QuickTestAttempt {
+  id           String   @id @default(uuid())
+  testId       String   @map("test_id")
+  studentName  String   @map("student_name")
+  answers      Json     @default("{}")
+  score        Int?
+  totalQ       Int?     @map("total_q")
+  correct      Int?
+  wrong        Int?
+  skipped      Int?
+  timeTaken    Int?     @map("time_taken")
+  submittedAt  DateTime? @map("submitted_at")
+  startedAt    DateTime @default(now()) @map("started_at")
+
+  test QuickTest @relation(fields: [testId], references: [id])
+
+  @@index([testId])
+  @@map("quick_test_attempts")
+}
+
+model Question {
+  id            String        @id @default(uuid())
+  subjectId     String        @map("subject_id")
+  chapterId          String?       @map("chapter_id")
+  subSubjectId       String?       @map("sub_subject_id")
+  text               String
+  questionImageUrl   String?       @map("question_image_url")
+  optionA            String?       @map("option_a")
+  optionAImageUrl    String?       @map("option_a_image_url")
+  optionB            String?       @map("option_b")
+  optionBImageUrl    String?       @map("option_b_image_url")
+  optionC            String?       @map("option_c")
+  optionCImageUrl    String?       @map("option_c_image_url")
+  optionD            String?       @map("option_d")
+  optionDImageUrl    String?       @map("option_d_image_url")
+  correctOption      CorrectOption? @map("correct_option")
+  type               QuestionType  @default(MCQ)
+  difficulty         Difficulty
+  tags               String[]
+  marksWeight        Int           @default(1) @map("marks_weight")
+  yearTag            String?       @map("year_tag")
+  isActive           Boolean       @default(true) @map("is_active")
+  createdBy          String        @map("created_by")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  subject       Subject       @relation(fields: [subjectId], references: [id])
+  chapter       Chapter?      @relation(fields: [chapterId], references: [id])
+  examQuestions ExamQuestion[]
+  examHistory   ExamHistory[]
+  disputes      Dispute[]
+
+  @@index([subjectId])
+  @@index([chapterId])
+  @@map("questions")
+}
+
+model Exam {
+  id                  String     @id @default(uuid())
+  subjectId           String     @map("subject_id")
+  cohortId            String     @map("cohort_id")
+  title               String
+  examCode            String?    @unique @map("exam_code")
+  marksPerQuestion    Int        @map("marks_per_question")
+  totalMarks          Int        @map("total_marks")
+  totalQuestions      Int        @map("total_questions")
+  timerMode           TimerMode  @map("timer_mode")
+  durationMinutes     Int        @map("duration_minutes")
+  negativeMarking     Boolean    @default(false) @map("negative_marking")
+  negativeMarksValue  Float      @default(0) @map("negative_marks_value")
+  status              ExamStatus @default(DRAFT)
+  expiresAt           DateTime?  @map("expires_at")
+  deliverInteractive  Boolean    @default(true) @map("deliver_interactive")
+  deliverPdf          Boolean    @default(false) @map("deliver_pdf")
+  templateId          String?    @map("template_id")
+  paperTitle          String?    @map("paper_title")
+  composition         Json?
+  orgSnapshot         Json?      @map("org_snapshot")
+  pdfStatus           PdfStatus  @default(NOT_REQUESTED) @map("pdf_status")
+  pdfError            String?    @map("pdf_error")
+  paperPath           String?    @map("paper_path")
+  answerKeyPath       String?    @map("answer_key_path")
+  createdBy           String     @map("created_by")
+  scheduledAt         DateTime?  @map("scheduled_at")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  deletedAt           DateTime?  @map("deleted_at")
+
+  subject       Subject        @relation(fields: [subjectId], references: [id])
+  examQuestions ExamQuestion[]
+  examHistory   ExamHistory[]
+  examSessions  ExamSession[]
+  results       Result[]
+  disputes      Dispute[]
+
+  @@map("exams")
+}
+
+model ExamQuestion {
+  id            String   @id @default(uuid())
+  examId        String   @map("exam_id")
+  questionId    String   @map("question_id")
+  questionOrder Int      @map("question_order")
+
+  exam     Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@unique([examId, questionOrder])
+  @@map("exam_questions")
+}
+
+model ExamHistory {
+  id           String   @id @default(uuid())
+  subjectId    String   @map("subject_id")
+  cohortId     String   @map("cohort_id")
+  questionId   String   @map("question_id")
+  usedInExamId String   @map("used_in_exam_id")
+  usedAt       DateTime @default(now()) @map("used_at")
+
+  subject  Subject  @relation(fields: [subjectId], references: [id])
+  question Question @relation(fields: [questionId], references: [id])
+  exam     Exam     @relation(fields: [usedInExamId], references: [id], onDelete: Cascade)
+
+  @@index([subjectId, cohortId])
+  @@map("exam_history")
+}
+
+model ExamSession {
+  id              String        @id @default(uuid())
+  examId          String        @map("exam_id")
+  studentId       String        @map("student_id")
+  studentName     String?       @map("student_name")
+  rollNumber      String?       @map("roll_number")
+  startedAt       DateTime      @default(now()) @map("started_at")
+  submittedAt     DateTime?     @map("submitted_at")
+  isAutoSubmitted Boolean       @default(false) @map("is_auto_submitted")
+  answers         Json          @default("{}")
+  status          SessionStatus @default(IN_PROGRESS)
+
+  exam     Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  result   Result?
+  disputes Dispute[]
+
+  @@unique([examId, studentId])
+  @@map("exam_sessions")
+}
+
+model Result {
+  id                String   @id @default(uuid())
+  examSessionId     String   @unique @map("exam_session_id")
+  studentId         String   @map("student_id")
+  studentName       String?  @map("student_name")
+  rollNumber        String?  @map("roll_number")
+  examId            String   @map("exam_id")
+  totalAttempted    Int      @map("total_attempted")
+  correctCount      Int      @map("correct_count")
+  wrongCount        Int      @map("wrong_count")
+  skippedCount      Int      @map("skipped_count")
+  rawScore          Float    @map("raw_score")
+  negativeDeduction Float    @map("negative_deduction")
+  finalScore        Float    @map("final_score")
+  percentage        Float
+  rank              Int?
+  answerKeyUrl      String?  @map("answer_key_url")
+  calculatedAt      DateTime @default(now()) @map("calculated_at")
+
+  examSession ExamSession @relation(fields: [examSessionId], references: [id], onDelete: Cascade)
+  exam        Exam        @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@map("results")
+}
+
+model Dispute {
+  id            String        @id @default(uuid())
+  examSessionId String        @map("exam_session_id")
+  studentId     String        @map("student_id")
+  examId        String        @map("exam_id")
+  questionId    String        @map("question_id")
+  studentReason String        @map("student_reason")
+  status        DisputeStatus @default(OPEN)
+  teacherNote   String?       @map("teacher_note")
+  resolvedBy    String?       @map("resolved_by")
+  raisedAt      DateTime      @default(now()) @map("raised_at")
+  resolvedAt    DateTime?     @map("resolved_at")
+
+  examSession ExamSession @relation(fields: [examSessionId], references: [id], onDelete: Cascade)
+  exam        Exam        @relation(fields: [examId], references: [id], onDelete: Cascade)
+  question    Question    @relation(fields: [questionId], references: [id])
+
+  @@map("disputes")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(STUDENT)
+  cohortId  String?  @map("cohort_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("users")
+}
+
+model PaperTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  isPreset    Boolean  @default(false) @map("is_preset")
+  ownerId     String?  @map("owner_id")
+  layout      Json
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([ownerId])
+  @@map("paper_templates")
+}

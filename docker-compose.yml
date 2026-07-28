@@ -1,0 +1,290 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: mcq_postgres
+    environment:
+      POSTGRES_USER: mcquser
+      POSTGRES_PASSWORD: mcqpassword
+      POSTGRES_DB: mcqdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - mcq_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcquser -d mcqdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: mcq_redis
+    command: redis-server --notify-keyspace-events KEA
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - mcq_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Migrator: runs Prisma migrations to completion, then exits. ────────────
+  # All backend services depend on this via `condition: service_completed_successfully`
+  # so migrations can never race with a service starting up. Uses the api-gateway
+  # image since it already has the full prisma/ dir + node_modules baked in.
+  migrator:
+    image: mcq-exam-system-api-gateway
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: mcq_migrator
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://mcquser:mcqpassword@postgres:5432/mcqdb
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mcq_network
+    restart: "no"
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: mcq_api_gateway
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      PORT: 3000
+      DATABASE_URL: postgresql://mcquser:mcqpassword@postgres:5432/mcqdb
+      JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-do-not-use-in-prod}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
+      QUESTION_BANK_URL: http://question-bank:3001
+      EXAM_GENERATOR_URL: http://exam-generator:3002
+      EXAM_SESSION_URL: http://exam-session:3003
+      RESULT_ENGINE_URL: http://result-engine:3004
+      DISPUTE_MANAGER_URL: http://dispute-manager:3005
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    networks:
+      - mcq_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  question-bank:
+    build:
+      context: ./services/question-bank
+      dockerfile: Dockerfile
+    container_name: mcq_question_bank
+    # Internal-only service: reachable via the api-gateway on the mcq_network.
+    # Uncomment the port mapping only if you need to poke it directly during dev.
+    # ports:
+    #   - "3001:3001"
+    expose:
+      - "3001"
+    environment:
+      NODE_ENV: development
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      PORT: 3001
+      DATABASE_URL: postgresql://mcquser:mcqpassword@postgres:5432/mcqdb
+      UPLOADS_DIR: /app/uploads/question-images
+    volumes:
+      - question_images_data:/app/uploads/question-images
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    networks:
+      - mcq_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  exam-generator:
+    build:
+      context: ./services/exam-generator
+      dockerfile: Dockerfile
+    container_name: mcq_exam_generator
+    # Internal-only service. See question-bank comment.
+    # ports:
+    #   - "3002:3002"
+    expose:
+      - "3002"
+    environment:
+      NODE_ENV: development
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      PORT: 3002
+      DATABASE_URL: postgresql://mcquser:mcqpassword@postgres:5432/mcqdb
+      REDIS_URL: redis://redis:6379
+      QUESTION_BANK_URL: http://question-bank:3001
+      EXAM_PAPERS_DIR: /app/uploads/exam-papers
+    volumes:
+      - exam_papers_data:/app/uploads/exam-papers
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      question-bank:
+        condition: service_healthy
+    networks:
+      - mcq_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  exam-session:
+    build:
+      context: ./services/exam-session
+      dockerfile: Dockerfile
+    container_name: mcq_exam_session
+    # Internal-only service. See question-bank comment.
+    # ports:
+    #   - "3003:3003"
+    expose:
+      - "3003"
+    environment:
+      NODE_ENV: development
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      PORT: 3003
+      DATABASE_URL: postgresql://mcquser:mcqpassword@postgres:5432/mcqdb
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-do-not-use-in-prod}
+      SESSION_JWT_SECRET: ${SESSION_JWT_SECRET:-dev-only-session-secret-do-not-use-in-prod}
+      EXAM_GENERATOR_URL: http://exam-generator:3002
+      RESULT_ENGINE_URL: http://result-engine:3004
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    networks:
+      - mcq_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  result-engine:
+    build:
+      context: ./services/result-engine
+      dockerfile: Dockerfile
+    container_name: mcq_result_engine
+    # Internal-only service. See question-bank comment.
+    # ports:
+    #   - "3004:3004"
+    expose:
+      - "3004"
+    environment:
+      NODE_ENV: development
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      PORT: 3004
+      DATABASE_URL: postgresql://mcquser:mcqpassword@postgres:5432/mcqdb
+      REDIS_URL: redis://redis:6379
+      UPLOADS_PATH: /app/uploads
+      QUESTION_BANK_URL: http://question-bank:3001
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    networks:
+      - mcq_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3004/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  dispute-manager:
+    build:
+      context: ./services/dispute-manager
+      dockerfile: Dockerfile
+    container_name: mcq_dispute_manager
+    # Internal-only service. See question-bank comment.
+    # ports:
+    #   - "3005:3005"
+    expose:
+      - "3005"
+    environment:
+      NODE_ENV: development
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      PORT: 3005
+      DATABASE_URL: postgresql://mcquser:mcqpassword@postgres:5432/mcqdb
+      REDIS_URL: redis://redis:6379
+      RESULT_ENGINE_URL: http://result-engine:3004
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    networks:
+      - mcq_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3005/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mcq_frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    networks:
+      - mcq_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+networks:
+  mcq_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+  question_images_data:
+  exam_papers_data:
