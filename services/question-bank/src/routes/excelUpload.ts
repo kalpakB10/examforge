@@ -28,6 +28,31 @@ function detectRowType(row: any): "MCQ" | "SUBJECTIVE" {
   return hasAnyOption || hasCorrect ? "MCQ" : "SUBJECTIVE";
 }
 
+type SubjectiveSubType = "FILL_BLANK" | "ONE_WORD" | "SHORT_ANSWER" | "LONG_ANSWER";
+
+/**
+ * Parse the sub_type column for subjective rows. Accepts common aliases:
+ *   fill_blank, fill-in-the-blanks, fill-in-blank, fill blank, blank, blanks
+ *   one_word, one-word, single_word, single word
+ *   short_answer, short, sa
+ *   long_answer, long, essay, la
+ * Falls back to SHORT_ANSWER if unspecified / unrecognised (matches how
+ * teachers typically upload legacy "subjective" data with no sub-type).
+ */
+function detectSubType(row: any): SubjectiveSubType {
+  const raw = toStr(
+    row.sub_type || row.subType || row.type_sub || row["Sub Type"] ||
+    row["Question Type"] || row.question_type || ""
+  ).toLowerCase().replace(/[\s_-]/g, "");
+
+  if (!raw) return "SHORT_ANSWER";
+  if (raw.startsWith("fill") || raw === "blank" || raw === "blanks") return "FILL_BLANK";
+  if (raw.startsWith("one") || raw.startsWith("single") || raw === "oneword") return "ONE_WORD";
+  if (raw.startsWith("long") || raw === "essay" || raw === "la") return "LONG_ANSWER";
+  if (raw.startsWith("short") || raw === "sa") return "SHORT_ANSWER";
+  return "SHORT_ANSWER";
+}
+
 function validateRow(row: any, idx: number): string | null {
   if (!toStr(row.text || row.Text || row.question || row.Question)) {
     return `Row ${idx}: text/question field is required`;
@@ -164,12 +189,21 @@ export async function excelUploadRoutes(
           ? (toStr(row.correct_option || row.correct || row.answer || row.Answer).toUpperCase() as CorrectOption)
           : null;
 
+      // Subjective-only: sub-type (fill/one-word/short/long) + expected answer.
+      // For MCQ rows we leave both fields null.
+      const subType = type === "SUBJECTIVE" ? detectSubType(row) : null;
+      const expectedAnswer = type === "SUBJECTIVE"
+        ? (toStr(row.expected_answer || row.expectedAnswer || row.answer || row.model_answer || "") || null)
+        : null;
+
       inserted.push({
         subjectId,
         chapterId: chapterId || null,
         createdBy,
         text,
         type: type as QuestionType,
+        subType: subType as any,
+        expectedAnswer,
         optionA: type === "MCQ" ? (optA || null) : null,
         optionB: type === "MCQ" ? (optB || null) : null,
         optionC: type === "MCQ" ? (optC || null) : null,

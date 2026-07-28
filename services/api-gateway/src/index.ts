@@ -105,8 +105,6 @@ app.all("/chapters", questionProxy);
 app.all("/chapters/*", questionProxy);
 app.all("/generate-paper", questionProxy);
 app.all("/generate-paper/*", questionProxy);
-app.all("/quick-tests", questionProxy);
-app.all("/quick-tests/*", questionProxy);
 app.all("/teacher/stats", questionProxy);
 app.all("/teacher/activity", questionProxy);
 app.all("/paper-templates", questionProxy);

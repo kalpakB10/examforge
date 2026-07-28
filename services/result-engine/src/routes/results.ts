@@ -23,6 +23,42 @@ async function requireExamOwner(
 export async function resultRoutes(app: FastifyInstance, opts: ResultRouteOptions) {
   const { prisma } = opts;
 
+  // GET /results/mine — logged-in student's own past exam results (newest first).
+  // Returns a compact summary suitable for a "my results" list. Anonymous
+  // sessions (where studentId is a random virtual id) are excluded because
+  // they aren't tied to any user account.
+  app.get("/mine", async (req, reply) => {
+    const userId = requireUser(req, reply);
+    if (!userId) return;
+
+    const results = await prisma.result.findMany({
+      where: { studentId: userId },
+      orderBy: { calculatedAt: "desc" },
+      take: 100,
+      include: {
+        exam: { select: { id: true, title: true, examCode: true, totalMarks: true, totalQuestions: true } },
+        examSession: { select: { id: true, submittedAt: true, isAutoSubmitted: true } },
+      },
+    });
+
+    return reply.send({
+      success: true,
+      data: results.map((r) => ({
+        sessionId: r.examSessionId,
+        exam: r.exam,
+        rank: r.rank,
+        finalScore: r.finalScore,
+        percentage: r.percentage,
+        correctCount: r.correctCount,
+        wrongCount: r.wrongCount,
+        skippedCount: r.skippedCount,
+        submittedAt: r.examSession.submittedAt,
+        isAutoSubmitted: r.examSession.isAutoSubmitted,
+        calculatedAt: r.calculatedAt,
+      })),
+    });
+  });
+
   // GET /results/session/:session_id — student gets their own result;
   // teacher gets any session under an exam they own.
   app.get("/session/:session_id", async (req, reply) => {

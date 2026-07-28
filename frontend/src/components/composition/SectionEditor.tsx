@@ -100,12 +100,58 @@ export default function SectionEditor({ section, idx, classes, subjectsByClass, 
 
         {section.type === 'SUBJECTIVE' && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                Sub-type
+                <span className="ml-1 text-gray-400 font-normal normal-case">— controls how much answer space is left</span>
+              </label>
+              <select
+                value={section.subType ?? 'SHORT_ANSWER'}
+                onChange={(e) => onChange({ subType: e.target.value as any })}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              >
+                <option value="FILL_BLANK">Fill in the Blanks</option>
+                <option value="ONE_WORD">One-Word Answer</option>
+                <option value="SHORT_ANSWER">Short Answer (2–3 marks)</option>
+                <option value="LONG_ANSWER">Long Answer / Essay (5+ marks)</option>
+              </select>
+            </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Blank Lines/Q</label>
-              <input type="number" min={1} max={30} value={section.blankLines}
-                onChange={(e) => onChange({ blankLines: Math.max(1, Math.min(30, Number(e.target.value) || 4)) })}
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5" title="Override default line count; leave 0 for auto based on sub-type">
+                Blank Lines <span className="text-gray-400 font-normal normal-case">(0 = auto)</span>
+              </label>
+              <input type="number" min={0} max={30} value={section.blankLines}
+                onChange={(e) => onChange({ blankLines: Math.max(0, Math.min(30, Number(e.target.value) || 0)) })}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5" title="Board-style: sample N questions but tell students to attempt only M">
+                Attempt Any <span className="text-gray-400 font-normal normal-case">(blank = all)</span>
+              </label>
+              <input type="number" min={0} max={section.numQuestions} value={section.attemptAny ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value.trim();
+                  if (!v) return onChange({ attemptAny: undefined });
+                  const n = Math.max(0, Math.min(section.numQuestions, Number(v) || 0));
+                  onChange({ attemptAny: n > 0 && n < section.numQuestions ? n : undefined });
+                }}
+                placeholder="all"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+            </div>
+          </div>
+        )}
+
+        {section.type === 'SUBJECTIVE' && (
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+              Instructions <span className="text-gray-400 font-normal normal-case">(optional — shows above questions in this section)</span>
+            </label>
+            <input type="text"
+              value={section.instructions ?? ''}
+              onChange={(e) => onChange({ instructions: e.target.value })}
+              placeholder="e.g. Write in your own words. Diagrams are welcome."
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
           </div>
         )}
 

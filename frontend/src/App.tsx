@@ -8,8 +8,6 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import TeacherDashboard from './pages/TeacherDashboard'
 import TeacherUploadPage from './pages/TeacherUploadPage'
-import TeacherTestsPage from './pages/TeacherTestsPage'
-import TeacherTestResultsPage from './pages/TeacherTestResultsPage'
 import TeacherExamsPage from './pages/TeacherExamsPage'
 import TeacherExamResultsPage from './pages/TeacherExamResultsPage'
 import TeacherClassesPage from './pages/TeacherClassesPage'
@@ -17,10 +15,11 @@ import TeacherClassDetailPage from './pages/TeacherClassDetailPage'
 import TeacherSubjectDetailPage from './pages/TeacherSubjectDetailPage'
 import TeacherSubSubjectDetailPage from './pages/TeacherSubSubjectDetailPage'
 import TeacherQuestionsPage from './pages/TeacherQuestionsPage'
-import TakeTestPage from './pages/TakeTestPage'
 import ExamJoinPage from './pages/ExamJoinPage'
 import ExamTakePage from './pages/ExamTakePage'
 import ExamResultPage from './pages/ExamResultPage'
+import StudentDashboard from './pages/StudentDashboard'
+import StudentResultsPage from './pages/StudentResultsPage'
 
 function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -34,6 +33,14 @@ function PublicLayout({ children }: { children: React.ReactNode }) {
 function TeacherLayout({ children }: { children: React.ReactNode }) {
   return (
     <ProtectedRoute requiredRole="TEACHER">
+      {children}
+    </ProtectedRoute>
+  )
+}
+
+function StudentLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <ProtectedRoute requiredRole="STUDENT">
       {children}
     </ProtectedRoute>
   )
@@ -54,9 +61,9 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
 
-      {/* Student test routes — no Navbar, fully public */}
-      <Route path="/test" element={<TakeTestPage />} />
-      <Route path="/test/:code" element={<TakeTestPage />} />
+      {/* Legacy /test URLs → redirect to /exam so old share links don't 404 */}
+      <Route path="/test" element={<Navigate to="/exam" replace />} />
+      <Route path="/test/:code" element={<Navigate to="/exam" replace />} />
 
       {/* Student exam flow — fully public, no Navbar */}
       {/* Specific sub-paths MUST come before the dynamic /:examCode catch-all */}
@@ -73,10 +80,15 @@ export default function App() {
       <Route path="/teacher/classes/:classId/subjects/:subjectId/sub-subjects/:subSubjectId" element={<TeacherLayout><TeacherSubSubjectDetailPage /></TeacherLayout>} />
       <Route path="/teacher/questions" element={<TeacherLayout><TeacherQuestionsPage /></TeacherLayout>} />
       <Route path="/teacher/upload" element={<TeacherLayout><TeacherUploadPage /></TeacherLayout>} />
-      <Route path="/teacher/tests" element={<TeacherLayout><TeacherTestsPage /></TeacherLayout>} />
-      <Route path="/teacher/tests/:testId/results" element={<TeacherLayout><TeacherTestResultsPage /></TeacherLayout>} />
+      {/* Legacy /teacher/tests URLs → redirect to /teacher/exams */}
+      <Route path="/teacher/tests" element={<Navigate to="/teacher/exams" replace />} />
+      <Route path="/teacher/tests/*" element={<Navigate to="/teacher/exams" replace />} />
       <Route path="/teacher/exams" element={<TeacherLayout><TeacherExamsPage /></TeacherLayout>} />
       <Route path="/teacher/exams/:examId/results" element={<TeacherLayout><TeacherExamResultsPage /></TeacherLayout>} />
+
+      {/* Student routes - protected, own sidebar */}
+      <Route path="/student" element={<StudentLayout><StudentDashboard /></StudentLayout>} />
+      <Route path="/student/results" element={<StudentLayout><StudentResultsPage /></StudentLayout>} />
 
       {/* 404 */}
       <Route path="*" element={

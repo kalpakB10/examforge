@@ -48,12 +48,12 @@ export default function Navbar() {
           {/* Desktop nav */}
           <div className="hidden md:flex items-center gap-1">
             {navLink('/', 'Browse')}
-            {navLink('/test', '⚡ Quick Test')}
             {navLink('/exam', '🎓 Join Exam', true)}
 
             {isAuthenticated ? (
               <>
                 {isTeacher && navLink('/teacher', 'Dashboard')}
+                {!isTeacher && navLink('/student', 'Dashboard')}
                 <div className="ml-2 flex items-center gap-2 pl-2 border-l border-indigo-600">
                   <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center text-white text-sm font-bold">
                     {user?.name?.charAt(0).toUpperCase()}
@@ -95,7 +95,7 @@ export default function Navbar() {
       {/* Mobile menu */}
       {menuOpen && (
         <div className="md:hidden border-t border-indigo-700 bg-indigo-800 px-4 py-3 space-y-1">
-          {[['/', 'Browse'], ['/test', '⚡ Quick Test'], ['/exam', '🎓 Join Exam']].map(([to, label]) => (
+          {[['/', 'Browse'], ['/exam', '🎓 Join Exam']].map(([to, label]) => (
             <Link key={to} to={to} onClick={() => setMenuOpen(false)}
               className={`block px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${isActive(to) ? 'bg-indigo-600 text-white' : 'text-indigo-100 hover:bg-indigo-700 hover:text-white'}`}>
               {label}
@@ -107,6 +107,12 @@ export default function Navbar() {
                 <Link to="/teacher" onClick={() => setMenuOpen(false)}
                   className="block px-3 py-2.5 rounded-lg text-sm font-medium text-indigo-100 hover:bg-indigo-700 hover:text-white transition-colors">
                   Teacher Dashboard
+                </Link>
+              )}
+              {!isTeacher && (
+                <Link to="/student" onClick={() => setMenuOpen(false)}
+                  className="block px-3 py-2.5 rounded-lg text-sm font-medium text-indigo-100 hover:bg-indigo-700 hover:text-white transition-colors">
+                  Student Dashboard
                 </Link>
               )}
               <div className="pt-2 border-t border-indigo-700 mt-2">

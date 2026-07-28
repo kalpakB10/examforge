@@ -30,6 +30,10 @@ async function uniqueExamCode(prisma: PrismaClient): Promise<string> {
 interface Section {
   title?: string;
   type: "MCQ" | "SUBJECTIVE";
+  // F.2: narrow SUBJECTIVE sections to a specific sub-type
+  subType?: "FILL_BLANK" | "ONE_WORD" | "SHORT_ANSWER" | "LONG_ANSWER";
+  attemptAny?: number;             // "attempt any N of M"; null = all compulsory
+  instructions?: string;           // per-section header line
   marksPerQuestion: number;
   numQuestions: number;
   blankLines?: number;

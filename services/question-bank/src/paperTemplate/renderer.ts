@@ -184,6 +184,14 @@ body { font-family: ${fontFamily}; font-size: ${fontSize}; color: #000; backgrou
 .opt-sym { font-size: 13px; }
 .subj-answer-space { margin-top: 6px; padding-left: 4px; }
 .subj-line { border-bottom: 1px solid #999; height: 22px; margin-bottom: 2px; }
+/* Per-subType layouts */
+.fill-blank .fill-blank-hint { font-size: 11px; color: #666; padding-left: 18px; margin-top: 4px; letter-spacing: 0.5px; }
+.one-word .one-word-line { border-bottom: 1.5px solid #666; height: 20px; margin: 4px 0 0 18px; max-width: 60%; }
+.long-answer .subj-answer-space { margin-top: 8px; }
+.long-answer .subj-line { height: 24px; }
+
+/* Section-level instructions ("Attempt any N of the following M") */
+.section-instructions { font-size: 11.5px; font-style: italic; color: #555; background: #fafafa; border-left: 3px solid ${accentColor}; padding: 5px 10px; margin: -4px 0 8px 0; }
 
 /* answer key grid */
 .ak-table { border-collapse: collapse; width: 100%; margin-top: 8px; }
@@ -193,6 +201,18 @@ body { font-family: ${fontFamily}; font-size: ${fontSize}; color: #000; backgrou
 .ak-spacer { height: 6px; }
 .ak-section { margin-bottom: 14px; }
 .ak-section-title { font-size: 12px; font-weight: bold; background: ${accentColor}; color: #fff; padding: 3px 10px; margin-bottom: 6px; border-radius: 2px; }
+
+/* F.8: subjective answer-key layouts */
+.ak-list { list-style: none; padding: 0; margin: 0; }
+.ak-list.ak-compact { column-count: 2; column-gap: 24px; }
+.ak-list.ak-compact .ak-item { break-inside: avoid; padding: 4px 0; font-size: 12px; }
+.ak-list.ak-compact .ak-num { font-weight: bold; margin-right: 6px; color: ${accentColor}; }
+.ak-list.ak-compact .ak-ans { color: #111; }
+.ak-list.ak-detailed .ak-item-block { border-left: 3px solid ${accentColor}; padding: 6px 12px; margin-bottom: 10px; background: #fafafa; break-inside: avoid; }
+.ak-num-block { font-weight: 600; font-size: 12.5px; margin-bottom: 4px; }
+.ak-num-block .ak-num { color: ${accentColor}; margin-right: 4px; }
+.ak-model-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; font-weight: bold; margin-top: 4px; margin-bottom: 2px; }
+.ak-model-body { font-size: 11.5px; line-height: 1.5; color: #222; }
 `;
 }
 

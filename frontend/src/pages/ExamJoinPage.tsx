@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api';
+import { useAuth } from '../contexts/AuthContext';
 
 interface ExamInfo {
   examId: string;
@@ -20,11 +21,14 @@ type Phase = 'code' | 'details' | 'joining' | 'error';
 export default function ExamJoinPage() {
   const { examCode: paramCode } = useParams<{ examCode?: string }>();
   const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
 
   const [phase, setPhase] = useState<Phase>(paramCode ? 'details' : 'code');
   const [code, setCode] = useState(paramCode?.toUpperCase() ?? '');
   const [examInfo, setExamInfo] = useState<ExamInfo | null>(null);
-  const [studentName, setStudentName] = useState('');
+  // Prefill name for logged-in students — one less thing to type. They can
+  // still edit it (e.g. if they want to use their formal school name).
+  const [studentName, setStudentName] = useState(user?.name ?? '');
   const [rollNumber, setRollNumber] = useState('');
   const [loadingExam, setLoadingExam] = useState(!!paramCode);
   const [error, setError] = useState('');
@@ -192,7 +196,14 @@ export default function ExamJoinPage() {
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm mb-4">{error}</div>
               )}
 
-              <h2 className="text-base font-bold text-gray-800 mb-4">Your Details</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-base font-bold text-gray-800">Your Details</h2>
+                {isAuthenticated && user?.role === 'STUDENT' && (
+                  <span className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-full px-3 py-1 font-medium">
+                    Signed in as {user.name} — results save to your account
+                  </span>
+                )}
+              </div>
 
               <div className="space-y-4 mb-6">
                 <div>

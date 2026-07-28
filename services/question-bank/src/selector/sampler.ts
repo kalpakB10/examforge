@@ -37,6 +37,7 @@ export function shuffleWithRng<T>(arr: T[], rng: () => number): T[] {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type SectionType = "MCQ" | "SUBJECTIVE";
+export type SubjectiveSubType = "FILL_BLANK" | "ONE_WORD" | "SHORT_ANSWER" | "LONG_ANSWER";
 
 export interface DifficultyDist {
   easy?: number;    // 0..1 (fractions) OR 0..100 (percent) — normalised internally
@@ -47,8 +48,17 @@ export interface DifficultyDist {
 export interface SectionSpec {
   title?: string;
   type: SectionType;
+  // When type=SUBJECTIVE, subType narrows the pool (fill-in-blanks only,
+  // one-word only, etc). NULL means "any subjective". Ignored for MCQ.
+  subType?: SubjectiveSubType;
   marksPerQuestion: number;
   numQuestions: number;
+  // "Attempt any N of the following M" pattern — samples M questions but
+  // shows an instruction line telling students they only need to attempt N.
+  // NULL means all N are compulsory.
+  attemptAny?: number;
+  // Per-section instruction line, shown above the questions.
+  instructions?: string;
   blankLines?: number;
   scope: { subjectIds?: string[]; chapterIds?: string[] };
   shuffle?: boolean;
@@ -190,6 +200,11 @@ export async function sampleSection(
   }
 
   const where: Prisma.QuestionWhereInput = { isActive: true, type: spec.type };
+  // Narrow to the specific subjective sub-type if requested (fill-in-blanks
+  // only, etc). Only meaningful when type=SUBJECTIVE; harmless otherwise.
+  if (spec.type === "SUBJECTIVE" && spec.subType) {
+    where.subType = spec.subType as any;
+  }
   if (hasChapters) where.chapterId = { in: spec.scope.chapterIds! };
   else where.subjectId = { in: spec.scope.subjectIds! };
   if (opts.excludeIds && opts.excludeIds.size > 0) where.id = { notIn: [...opts.excludeIds] };

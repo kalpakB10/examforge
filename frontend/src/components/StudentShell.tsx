@@ -2,12 +2,11 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Brand from './Brand';
 
+// Students have a much smaller product surface than teachers — two nav items
+// is intentional. Anything more would just be padding.
 const NAV = [
-  { to: '/teacher', label: 'Overview', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
-  { to: '/teacher/classes', label: 'Classes', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
-  { to: '/teacher/questions', label: 'Question Bank', icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
-  { to: '/teacher/upload', label: 'Upload Questions', icon: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12' },
-  { to: '/teacher/exams', label: 'Exams', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' },
+  { to: '/student', label: 'Home', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
+  { to: '/student/results', label: 'My Results', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
 ];
 
 interface Props {
@@ -17,38 +16,32 @@ interface Props {
   action?: React.ReactNode;
 }
 
-export default function TeacherShell({ children, title, subtitle, action }: Props) {
+export default function StudentShell({ children, title, subtitle, action }: Props) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
   const handleLogout = () => { logout(); navigate('/'); };
-
   const isActive = (to: string) =>
-    to === '/teacher' ? location.pathname === '/teacher' : location.pathname.startsWith(to);
+    to === '/student' ? location.pathname === '/student' : location.pathname.startsWith(to);
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-gray-200 hidden md:flex flex-col shrink-0 fixed h-full z-20">
-        {/* Logo */}
         <div className="px-6 py-5 border-b border-gray-100">
           <Brand size="sm" showTagline />
-          <p className="text-xs text-gray-400 mt-2 ml-10">Teacher Portal</p>
+          <p className="text-xs text-gray-400 mt-2 ml-10">Student Portal</p>
         </div>
-
-        {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
           {NAV.map(item => {
             const active = isActive(item.to);
             return (
               <Link key={item.to} to={item.to}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                  active
-                    ? 'bg-indigo-50 text-indigo-700'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  active ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 }`}>
-                <svg className={`w-4.5 h-4.5 shrink-0 ${active ? 'text-indigo-600' : 'text-gray-400'}`} style={{width:'18px',height:'18px'}} fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} viewBox="0 0 24 24">
+                <svg className={`shrink-0 ${active ? 'text-indigo-600' : 'text-gray-400'}`} style={{width:'18px',height:'18px'}} fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d={item.icon}/>
                 </svg>
                 {item.label}
@@ -57,8 +50,6 @@ export default function TeacherShell({ children, title, subtitle, action }: Prop
             );
           })}
         </nav>
-
-        {/* User footer */}
         <div className="px-4 py-4 border-t border-gray-100">
           <div className="flex items-center gap-3 px-2 py-2">
             <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-700 text-sm font-bold shrink-0">
@@ -80,7 +71,6 @@ export default function TeacherShell({ children, title, subtitle, action }: Prop
 
       {/* Main */}
       <div className="flex-1 md:ml-64 flex flex-col min-h-screen">
-        {/* Top bar */}
         <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
           <div>
             <h1 className="text-lg font-bold text-gray-900">{title}</h1>
@@ -88,11 +78,7 @@ export default function TeacherShell({ children, title, subtitle, action }: Prop
           </div>
           {action && <div>{action}</div>}
         </header>
-
-        {/* Content */}
-        <main className="flex-1 p-6">
-          {children}
-        </main>
+        <main className="flex-1 p-6">{children}</main>
       </div>
 
       {/* Mobile bottom nav */}
@@ -105,7 +91,7 @@ export default function TeacherShell({ children, title, subtitle, action }: Prop
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 1.5} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d={item.icon}/>
               </svg>
-              <span className="hidden sm:block">{item.label.split(' ')[0]}</span>
+              <span>{item.label}</span>
             </Link>
           );
         })}

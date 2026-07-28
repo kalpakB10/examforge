@@ -243,10 +243,36 @@ function ExamList({ exams, loading, error, onRetry, onOpen, onDeleted, showToast
                   </p>
                   <p className="text-xs text-gray-400 mt-1">
                     {e.expiresAt ? <>Expires {new Date(e.expiresAt).toLocaleString()}</> : 'No expiry'}
-                    {e._count && <> · {e._count.examSessions} attempts</>}
                   </p>
+                  {/* Inline stats bar — quick glance without a click-through */}
+                  {e._count && (
+                    <div className="flex flex-wrap items-center gap-3 mt-2.5">
+                      <span className="inline-flex items-center gap-1.5 text-xs bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-1 rounded-lg font-semibold">
+                        <span className="text-indigo-500">👥</span>
+                        {e._count.examSessions} attempt{e._count.examSessions !== 1 ? 's' : ''}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 text-xs bg-green-50 text-green-700 border border-green-100 px-2.5 py-1 rounded-lg font-semibold">
+                        <span className="text-green-500">✓</span>
+                        {e._count.results} submitted
+                      </span>
+                      {e._count.examSessions > e._count.results && (
+                        <span className="inline-flex items-center gap-1.5 text-xs bg-amber-50 text-amber-700 border border-amber-100 px-2.5 py-1 rounded-lg font-semibold">
+                          <span className="text-amber-500">⏳</span>
+                          {e._count.examSessions - e._count.results} in progress
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2 shrink-0">
+                  {/* Results button lives here for zero-click discovery — was previously
+                      buried inside the detail view. Hidden for drafts (no data yet). */}
+                  {e.status !== 'DRAFT' && (
+                    <Link to={`/teacher/exams/${e.id}/results`}
+                      className="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 inline-flex items-center gap-1">
+                      📊 Results
+                    </Link>
+                  )}
                   <button onClick={() => onOpen(e.id)} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-100">Open</button>
                   <button onClick={() => setConfirmDeleteId(e.id)} className="px-3 py-1.5 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg font-medium">Delete</button>
                 </div>
@@ -422,6 +448,10 @@ function CreateExamWizard({ onCreated, onCancel, showToast }: {
         negativeMarking, negativeMarksValue: negativeMarking ? Number(negativeMarksValue) : 0,
         composition: sections.map((s) => ({
           title: s.title, type: s.type,
+          // F.2: pass sub-type / attempt-any / per-section instructions through
+          subType: s.type === 'SUBJECTIVE' ? (s.subType ?? 'SHORT_ANSWER') : undefined,
+          attemptAny: s.attemptAny && s.attemptAny > 0 && s.attemptAny < s.numQuestions ? s.attemptAny : undefined,
+          instructions: s.instructions?.trim() || undefined,
           marksPerQuestion: s.marksPerQuestion, numQuestions: s.numQuestions,
           blankLines: s.type === 'SUBJECTIVE' ? s.blankLines : undefined,
           scope: s.scopeMode === 'chapters' ? { chapterIds: s.chapterIds } : { subjectIds: s.subjectIds },

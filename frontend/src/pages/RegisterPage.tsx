@@ -24,7 +24,7 @@ export default function RegisterPage() {
     try {
       const result = await register(name, email, password, role);
       if (result.user.role === 'TEACHER') navigate('/teacher', { replace: true });
-      else navigate('/', { replace: true });
+      else navigate('/student', { replace: true });
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: { message?: string } } } };
       setError(e?.response?.data?.error?.message || 'Registration failed. Please try again.');

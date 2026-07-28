@@ -26,6 +26,13 @@ enum QuestionType {
   SUBJECTIVE
 }
 
+enum SubjectiveSubType {
+  FILL_BLANK
+  ONE_WORD
+  SHORT_ANSWER
+  LONG_ANSWER
+}
+
 enum TimerMode {
   FIXED_DURATION
   PER_QUESTION
@@ -132,44 +139,6 @@ model Chapter {
   @@map("chapters")
 }
 
-model QuickTest {
-  id             String   @id @default(uuid())
-  code           String   @unique
-  title          String
-  chapterIds     String[] @map("chapter_ids")
-  timeMinutes    Int      @map("time_minutes")
-  totalMarks     Int      @map("total_marks")
-  shuffleQ       Boolean  @default(false) @map("shuffle_q")
-  isActive       Boolean  @default(true) @map("is_active")
-  createdBy      String   @map("created_by")
-  createdAt      DateTime @default(now()) @map("created_at")
-  expiresAt      DateTime? @map("expires_at")
-
-  attempts QuickTestAttempt[]
-
-  @@map("quick_tests")
-}
-
-model QuickTestAttempt {
-  id           String   @id @default(uuid())
-  testId       String   @map("test_id")
-  studentName  String   @map("student_name")
-  answers      Json     @default("{}")
-  score        Int?
-  totalQ       Int?     @map("total_q")
-  correct      Int?
-  wrong        Int?
-  skipped      Int?
-  timeTaken    Int?     @map("time_taken")
-  submittedAt  DateTime? @map("submitted_at")
-  startedAt    DateTime @default(now()) @map("started_at")
-
-  test QuickTest @relation(fields: [testId], references: [id])
-
-  @@index([testId])
-  @@map("quick_test_attempts")
-}
-
 model Question {
   id            String        @id @default(uuid())
   subjectId     String        @map("subject_id")
@@ -187,6 +156,8 @@ model Question {
   optionDImageUrl    String?       @map("option_d_image_url")
   correctOption      CorrectOption? @map("correct_option")
   type               QuestionType  @default(MCQ)
+  subType            SubjectiveSubType? @map("sub_type")
+  expectedAnswer     String?         @map("expected_answer")
   difficulty         Difficulty
   tags               String[]
   marksWeight        Int           @default(1) @map("marks_weight")

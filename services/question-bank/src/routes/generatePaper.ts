@@ -31,10 +31,14 @@ interface OrgHeader {
 }
 
 type SectionType = "MCQ" | "SUBJECTIVE";
+type SubjectiveSubType = "FILL_BLANK" | "ONE_WORD" | "SHORT_ANSWER" | "LONG_ANSWER";
 
 interface Section {
   title?: string;
   type: SectionType;
+  subType?: SubjectiveSubType;    // narrows SUBJECTIVE to one flavour
+  attemptAny?: number;             // "attempt any N of M"; null = all compulsory
+  instructions?: string;           // per-section instruction line
   marksPerQuestion: number;
   numQuestions: number;
   blankLines?: number;
@@ -104,26 +108,97 @@ function buildMcqQuestion(q: any, n: number): string {
   </div>`;
 }
 
-function buildSubjectiveQuestion(q: any, n: number, marks: number, blankLines: number): string {
+/**
+ * Default answer-space per sub-type. Tuned to match how Indian board papers
+ * actually leave room for each question style. Teachers can still override
+ * with `section.blankLines` if they want more/less.
+ */
+function defaultBlankLines(subType: SubjectiveSubType | undefined): number {
+  switch (subType) {
+    case "FILL_BLANK":   return 0;   // answer inline with the blank
+    case "ONE_WORD":     return 1;   // single short line
+    case "SHORT_ANSWER": return 4;   // ~30–50 words
+    case "LONG_ANSWER":  return 14;  // ~150+ words
+    default:             return 4;   // fallback
+  }
+}
+
+function buildSubjectiveQuestion(
+  q: any,
+  n: number,
+  marks: number,
+  subType: SubjectiveSubType | undefined,
+  blankLinesOverride?: number,
+): string {
   const yearTag = q.yearTag ? ` <span class="year-tag">[${q.yearTag}]</span>` : "";
-  const lines = Array.from({ length: blankLines }, () => `<div class="subj-line"></div>`).join("");
-  return `<div class="question subj-question">
-    <div class="q-text">
-      <span class="q-num">${n}.</span> ${q.text}${yearTag}
-      <span class="q-marks">[${marks} mark${marks !== 1 ? "s" : ""}]</span>
-    </div>
+  const marksBadge = `<span class="q-marks">[${marks} mark${marks !== 1 ? "s" : ""}]</span>`;
+  const effectiveSubType = subType ?? (q.subType as SubjectiveSubType | undefined) ?? "SHORT_ANSWER";
+  const lineCount = blankLinesOverride ?? defaultBlankLines(effectiveSubType);
+
+  // FILL_BLANK: inline single answer slot appended to the question text.
+  // Teachers write blanks in the question text using "___" — we leave that
+  // as-is and just add a bracketed "Ans:" underneath for clarity.
+  if (effectiveSubType === "FILL_BLANK") {
+    return `<div class="question subj-question fill-blank">
+      <div class="q-text"><span class="q-num">${n}.</span> ${q.text}${yearTag} ${marksBadge}</div>
+      <div class="fill-blank-hint">Ans: ______________________________</div>
+    </div>`;
+  }
+  // ONE_WORD: single line answer box after the question.
+  if (effectiveSubType === "ONE_WORD") {
+    return `<div class="question subj-question one-word">
+      <div class="q-text"><span class="q-num">${n}.</span> ${q.text}${yearTag} ${marksBadge}</div>
+      <div class="one-word-line"></div>
+    </div>`;
+  }
+  // SHORT_ANSWER + LONG_ANSWER: N ruled lines below the question.
+  const lines = Array.from({ length: lineCount }, () => `<div class="subj-line"></div>`).join("");
+  return `<div class="question subj-question ${effectiveSubType.toLowerCase().replace("_", "-")}">
+    <div class="q-text"><span class="q-num">${n}.</span> ${q.text}${yearTag} ${marksBadge}</div>
     <div class="subj-answer-space">${lines}</div>
   </div>`;
 }
 
+const SUBTYPE_LABEL: Record<SubjectiveSubType, string> = {
+  FILL_BLANK:   "Fill in the Blanks",
+  ONE_WORD:     "One-Word Answer",
+  SHORT_ANSWER: "Short Answer",
+  LONG_ANSWER:  "Long Answer",
+};
+
+function sectionTypeLabel(sec: Section): string {
+  if (sec.type === "MCQ") return "MCQ";
+  if (sec.subType) return SUBTYPE_LABEL[sec.subType];
+  return "Subjective";
+}
+
 function buildSectionBanner(idx: number, sec: Section, count: number): string {
   const label = sec.title || `Section ${String.fromCharCode(65 + idx)}`;
-  const typeLabel = sec.type === "MCQ" ? "MCQ" : "Short Answer";
+  const typeLabel = sectionTypeLabel(sec);
+  const totalMarks = count * sec.marksPerQuestion;
+  // "Attempt any N of M" — samples M questions, but the instruction line
+  // tells students they only need to answer N. Displayed both in the banner
+  // marks calculation and as a section-level instruction below the banner.
+  const attemptCount = sec.attemptAny && sec.attemptAny < count ? sec.attemptAny : count;
+  const displayedTotal = attemptCount * sec.marksPerQuestion;
+  const marksSummary = attemptCount === count
+    ? `${count} × ${sec.marksPerQuestion} = ${totalMarks} marks`
+    : `Attempt ${attemptCount} of ${count} × ${sec.marksPerQuestion} = ${displayedTotal} marks`;
   return `<div class="paper-section-header">
     <span class="ps-label">${label}</span>
     <span class="ps-type">${typeLabel}</span>
-    <span class="ps-meta">${count} question${count !== 1 ? "s" : ""} × ${sec.marksPerQuestion} mark${sec.marksPerQuestion !== 1 ? "s" : ""} = ${count * sec.marksPerQuestion} mark${count * sec.marksPerQuestion !== 1 ? "s" : ""}</span>
+    <span class="ps-meta">${marksSummary}</span>
   </div>`;
+}
+
+function buildSectionInstructions(sec: Section, count: number): string {
+  const parts: string[] = [];
+  if (sec.attemptAny && sec.attemptAny < count) {
+    parts.push(`Attempt any <strong>${sec.attemptAny}</strong> of the following <strong>${count}</strong> questions.`);
+  }
+  if (sec.instructions) parts.push(sec.instructions);
+  if (parts.length === 0) return "";
+  return `<div class="section-instructions">${parts.join(" ")}</div>`;
 }
 
 interface RenderedSection { sec: Section; questions: any[] }
@@ -150,11 +225,12 @@ function assemblePaper(
   for (let i = 0; i < rendered.length; i++) {
     const { sec, questions } = rendered[i];
     body += buildSectionBanner(i, sec, questions.length);
+    body += buildSectionInstructions(sec, questions.length);
     for (const q of questions) {
       n++;
       body += sec.type === "MCQ"
         ? buildMcqQuestion(q, n)
-        : buildSubjectiveQuestion(q, n, sec.marksPerQuestion, sec.blankLines ?? 4);
+        : buildSubjectiveQuestion(q, n, sec.marksPerQuestion, sec.subType, sec.blankLines);
     }
   }
 
@@ -183,29 +259,67 @@ function assembleAnswerKey(
     globalOffset += r.questions.length;
   }
 
+  // F.8: render each section's answer key in the format that fits its type.
+  // MCQ → compact grid (Q.No / Ans row). Fill-in-blank + One-word → numbered
+  // list of expected answers. Short/Long answer → "Model Answer" per question
+  // with the teacher's expectedAnswer text (or a placeholder if missing).
   for (let sIdx = 0; sIdx < rendered.length; sIdx++) {
     const r = rendered[sIdx];
-    if (r.sec.type !== "MCQ") continue;
     const start = sectionOffsets[sIdx];
-    const rows: string[] = [];
-    for (let i = 0; i < r.questions.length; i += groupSize) {
-      const slice = r.questions.slice(i, i + groupSize);
-      const nums = slice.map((_, j) => `<td>${start + i + j + 1}</td>`).join("");
-      const ans = slice.map((q) => `<td class="ans-cell">${OPTION_SYMBOLS[q.correctOption as string] ?? q.correctOption ?? "?"}</td>`).join("");
-      rows.push(
-        `<tr><td class="lbl">Q.No</td>${nums}</tr><tr><td class="lbl">Ans</td>${ans}</tr><tr class="ak-spacer"><td colspan="${slice.length + 1}"></td></tr>`
-      );
-    }
     const secTitle = r.sec.title || `Section ${String.fromCharCode(65 + sIdx)}`;
-    akHtml += `<div class="ak-section">
-      <div class="ak-section-title">${secTitle} — MCQ (${r.questions.length} Qs)</div>
-      <table class="ak-table">${rows.join("")}</table>
-    </div>`;
+
+    if (r.sec.type === "MCQ") {
+      const rows: string[] = [];
+      for (let i = 0; i < r.questions.length; i += groupSize) {
+        const slice = r.questions.slice(i, i + groupSize);
+        const nums = slice.map((_, j) => `<td>${start + i + j + 1}</td>`).join("");
+        const ans = slice.map((q) => `<td class="ans-cell">${OPTION_SYMBOLS[q.correctOption as string] ?? q.correctOption ?? "?"}</td>`).join("");
+        rows.push(
+          `<tr><td class="lbl">Q.No</td>${nums}</tr><tr><td class="lbl">Ans</td>${ans}</tr><tr class="ak-spacer"><td colspan="${slice.length + 1}"></td></tr>`
+        );
+      }
+      akHtml += `<div class="ak-section">
+        <div class="ak-section-title">${secTitle} — MCQ (${r.questions.length} Qs)</div>
+        <table class="ak-table">${rows.join("")}</table>
+      </div>`;
+      continue;
+    }
+
+    // Subjective section — key layout depends on sub-type.
+    const subType = (r.sec.subType ?? "SHORT_ANSWER") as SubjectiveSubType;
+    const typeLabel = SUBTYPE_LABEL[subType];
+
+    if (subType === "FILL_BLANK" || subType === "ONE_WORD") {
+      // Compact numbered list: N. answer
+      const items = r.questions.map((q, idx) => {
+        const num = start + idx + 1;
+        const ans = q.expectedAnswer || "—";
+        return `<li class="ak-item"><span class="ak-num">${num}.</span> <span class="ak-ans">${ans}</span></li>`;
+      }).join("");
+      akHtml += `<div class="ak-section">
+        <div class="ak-section-title">${secTitle} — ${typeLabel} (${r.questions.length} Qs)</div>
+        <ol class="ak-list ak-compact">${items}</ol>
+      </div>`;
+    } else {
+      // SHORT_ANSWER / LONG_ANSWER — "Model answer" per question
+      const items = r.questions.map((q, idx) => {
+        const num = start + idx + 1;
+        const model = q.expectedAnswer || "<em>[Model answer not provided by teacher]</em>";
+        return `<li class="ak-item ak-item-block">
+          <div class="ak-num-block"><span class="ak-num">${num}.</span> ${q.text}</div>
+          <div class="ak-model-label">Model answer / marking scheme:</div>
+          <div class="ak-model-body">${model}</div>
+        </li>`;
+      }).join("");
+      akHtml += `<div class="ak-section">
+        <div class="ak-section-title">${secTitle} — ${typeLabel} (${r.questions.length} Qs)</div>
+        <ol class="ak-list ak-detailed">${items}</ol>
+      </div>`;
+    }
   }
 
-  const anyMcq = rendered.some((r) => r.sec.type === "MCQ");
-  if (!anyMcq) {
-    akHtml = `<div style="padding: 20px; text-align: center; color: #666;">No MCQ questions in this paper — no answer key needed.</div>`;
+  if (rendered.length === 0) {
+    akHtml = `<div style="padding: 20px; text-align: center; color: #666;">This paper has no questions — no answer key to generate.</div>`;
   }
 
   return `<!DOCTYPE html>
@@ -311,6 +425,9 @@ export async function generatePaperRoutes(app: FastifyInstance, opts: GeneratePa
     const specs: SectionSpec[] = sections.map((s, i) => ({
       title: s.title || `Section ${String.fromCharCode(65 + i)}`,
       type: s.type,
+      subType: s.subType,
+      attemptAny: s.attemptAny,
+      instructions: s.instructions,
       marksPerQuestion: s.marksPerQuestion,
       numQuestions: s.numQuestions,
       blankLines: s.blankLines,

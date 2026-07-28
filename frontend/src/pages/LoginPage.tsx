@@ -19,7 +19,7 @@ export default function LoginPage() {
     try {
       const result = await login(email, password);
       if (result.user.role === 'TEACHER') navigate('/teacher', { replace: true });
-      else navigate('/', { replace: true });
+      else navigate('/student', { replace: true });
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: { message?: string } } } };
       setError(e?.response?.data?.error?.message || 'Invalid email or password.');

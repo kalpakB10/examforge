@@ -86,9 +86,17 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRouteOpti
       });
     }
 
-    // 2. Find or create a "virtual" studentId keyed on rollNumber+examId
-    // We use rollNumber+examId as a stable pseudo-identity (no separate students table needed)
-    const virtualStudentId = `${exam.cohortId}::${body.rollNumber.trim().toUpperCase()}`;
+    // 2. Determine the studentId for this session.
+    // Logged-in students (x-user-id header from the gateway) get their real
+    // user id, so their sessions link back to their account for /results/mine.
+    // Anonymous students fall back to a stable virtual id derived from
+    // (cohort, roll number) so the same roll on the same exam always
+    // resumes the same session.
+    const authedUserId = req.headers["x-user-id"] as string | undefined;
+    const authedRole = req.headers["x-user-role"] as string | undefined;
+    const virtualStudentId = authedUserId && authedRole === "STUDENT"
+      ? authedUserId
+      : `${exam.cohortId}::${body.rollNumber.trim().toUpperCase()}`;
 
     // 3. Check for existing session
     const existing = await prisma.examSession.findUnique({

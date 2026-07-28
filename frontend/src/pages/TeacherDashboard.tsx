@@ -197,7 +197,7 @@ export default function TeacherDashboard() {
     { to: '/teacher/exams', label: 'Create Exam', desc: 'Online + Printable PDF', color: 'border-indigo-100 hover:bg-indigo-50 hover:border-indigo-300' },
     { to: '/teacher/upload', label: 'Upload Questions', desc: 'Excel bulk or single', color: 'border-green-100 hover:bg-green-50 hover:border-green-300' },
     { to: '/teacher/classes', label: 'Manage Classes', desc: 'Class → Subject → Chapter', color: 'border-violet-100 hover:bg-violet-50 hover:border-violet-300' },
-    { to: '/teacher/tests', label: 'Quick Test', desc: 'Simple shareable test', color: 'border-yellow-100 hover:bg-yellow-50 hover:border-yellow-300' },
+    { to: '/teacher/questions', label: 'Question Bank', desc: 'Browse & edit questions', color: 'border-yellow-100 hover:bg-yellow-50 hover:border-yellow-300' },
   ];
 
   return (

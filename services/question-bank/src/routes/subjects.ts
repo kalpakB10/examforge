@@ -54,9 +54,13 @@ export async function subjectRoutes(
     const ownClassIds = (
       await prisma.class.findMany({ where: { createdBy: userId }, select: { id: true } })
     ).map((c) => c.id);
-    const where: any = query.class_id
-      ? { classId: query.class_id, AND: { classId: { in: ownClassIds } } }
-      : { classId: { in: ownClassIds } };
+    // If a class_id filter was supplied, intersect with the caller's own
+    // classes (yields nothing if they don't own it — desired). Otherwise
+    // return every subject under any class they own.
+    const allowedIds = query.class_id
+      ? ownClassIds.filter((id) => id === query.class_id)
+      : ownClassIds;
+    const where: any = { classId: { in: allowedIds } };
 
     const subjects = await prisma.subject.findMany({
       where,

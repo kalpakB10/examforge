@@ -9,6 +9,7 @@ export interface ChapterItem {
 
 export type ScopeMode = 'chapters' | 'subject' | 'subjects'
 export type SectionType = 'MCQ' | 'SUBJECTIVE'
+export type SubjectiveSubType = 'FILL_BLANK' | 'ONE_WORD' | 'SHORT_ANSWER' | 'LONG_ANSWER'
 
 export interface DifficultyMix {
   easy: number   // 0..100, treated as weights (do not need to sum to 100)
@@ -20,6 +21,9 @@ export interface Section {
   id: string
   title: string
   type: SectionType
+  subType?: SubjectiveSubType    // only meaningful when type=SUBJECTIVE
+  attemptAny?: number             // "attempt any N of M"; undefined = all compulsory
+  instructions?: string           // per-section header line
   marksPerQuestion: number
   numQuestions: number
   blankLines: number

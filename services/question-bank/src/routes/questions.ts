@@ -69,6 +69,9 @@ export async function questionRoutes(
       option_b: optionB,
       option_c: optionC,
       option_d: optionD,
+      // F.1/F.4: optional sub-type + expected-answer for subjective questions
+      sub_type: subTypeRaw,
+      expected_answer: expectedAnswerRaw,
     } = fields;
 
     if (!createdBy) {
@@ -156,12 +159,21 @@ export async function questionRoutes(
       }
     }
 
+    // Subjective-only: normalise sub-type + expected answer. Defaults to
+    // SHORT_ANSWER when a subjective row omits sub_type (safest sensible default).
+    const validSubTypes = new Set(["FILL_BLANK", "ONE_WORD", "SHORT_ANSWER", "LONG_ANSWER"]);
+    const normalisedSubType = questionType === "SUBJECTIVE"
+      ? (validSubTypes.has((subTypeRaw || "").toUpperCase()) ? (subTypeRaw as string).toUpperCase() : "SHORT_ANSWER")
+      : null;
+
     const question = await prisma.question.create({
       data: {
         subjectId,
         chapterId: chapterId || null,
         text,
         type: questionType,
+        subType: normalisedSubType as any,
+        expectedAnswer: questionType === "SUBJECTIVE" ? (expectedAnswerRaw || null) : null,
         questionImageUrl,
         optionA: questionType === "MCQ" ? (optionA || null) : null,
         optionAImageUrl: questionType === "MCQ" ? optionAImageUrl : null,

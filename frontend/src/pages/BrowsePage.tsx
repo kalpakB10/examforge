@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import api from '../api';
 import type { Subject } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
 const SUBJECT_COLORS = [
   'from-blue-500 to-blue-700',
@@ -15,10 +16,17 @@ const SUBJECT_COLORS = [
 const SUBJECT_ICONS = ['📐', '🔬', '📖', '🌍', '🧮', '🎨', '💡', '🧬', '⚗️', '🌱'];
 
 export default function BrowsePage() {
+  const { user } = useAuth();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+
+  // Logged-in users land on their own dashboard — the marketing/browse view
+  // is for anonymous visitors only. Redirect happens after hooks to keep
+  // hook order stable across renders.
+  if (user?.role === 'TEACHER') return <Navigate to="/teacher" replace />;
+  if (user?.role === 'STUDENT') return <Navigate to="/student" replace />;
 
   useEffect(() => {
     const fetchSubjects = async () => {
