@@ -523,6 +523,165 @@ ${pages.map((p, i) => i === 0 ? p : `<div class="variant-break"></div>${p}`).joi
     return reply.header("Content-Type", "text/html").send(merged);
   });
 
+  /**
+   * POST /generate-paper/preview
+   *
+   * Same input as /generate-paper, but INSTEAD of generating a PDF and returning
+   * bytes, returns JSON with:
+   *   - The sampled question IDs + text per section (for the "sample review" step)
+   *   - The seed used (so the caller can lock it in when they hit Publish later)
+   *   - The composed HTML (for an in-browser iframe preview — no Puppeteer needed)
+   *
+   * This is the "look-before-you-commit" endpoint the wizard uses in steps 4+5.
+   * Non-persistent, safe to call repeatedly with different seeds.
+   */
+  app.post("/generate-paper/preview", async (req, reply) => {
+    const userId = req.headers["x-user-id"] as string | undefined;
+    if (!userId) {
+      return reply.code(401).send({ success: false, error: { code: "UNAUTHORIZED", message: "Authentication required" } });
+    }
+    const body = req.body as PaperConfig;
+    const { org, sections, templateId } = body;
+
+    if (!org?.orgName) {
+      return reply.code(400).send({ success: false, error: { code: "MISSING_ORG", message: "org.orgName is required" } });
+    }
+    if (!Array.isArray(sections) || sections.length === 0) {
+      return reply.code(400).send({ success: false, error: { code: "NO_SECTIONS", message: "At least one section is required" } });
+    }
+
+    // Ownership check on scope (same as the main /generate-paper).
+    const requestedSubjectIds = new Set<string>();
+    const requestedChapterIds = new Set<string>();
+    for (const s of sections) {
+      (s.scope?.subjectIds ?? []).forEach((id) => requestedSubjectIds.add(id));
+      (s.scope?.chapterIds ?? []).forEach((id) => requestedChapterIds.add(id));
+    }
+    if (requestedSubjectIds.size > 0) {
+      const rows = await prisma.subject.findMany({
+        where: { id: { in: [...requestedSubjectIds] } },
+        select: { id: true, class: { select: { createdBy: true } } },
+      });
+      if (rows.length !== requestedSubjectIds.size || rows.some((r) => !r.class || r.class.createdBy !== userId)) {
+        return reply.code(404).send({ success: false, error: { code: "NOT_FOUND", message: "Resource not found" } });
+      }
+    }
+    if (requestedChapterIds.size > 0) {
+      const rows = await prisma.chapter.findMany({
+        where: { id: { in: [...requestedChapterIds] } },
+        select: { id: true, subject: { select: { class: { select: { createdBy: true } } } } },
+      });
+      if (rows.length !== requestedChapterIds.size || rows.some((r) => !r.subject?.class || r.subject.class.createdBy !== userId)) {
+        return reply.code(404).send({ success: false, error: { code: "NOT_FOUND", message: "Resource not found" } });
+      }
+    }
+
+    // Load template (or fallback).
+    let layout: Layout = FALLBACK_LAYOUT;
+    if (templateId) {
+      const tmpl = await prisma.paperTemplate.findUnique({ where: { id: templateId } });
+      if (tmpl) layout = tmpl.layout as unknown as Layout;
+    }
+
+    // Section shape validation.
+    const upfrontErrors: string[] = [];
+    for (let i = 0; i < sections.length; i++) {
+      const sec = sections[i];
+      const label = sec.title || `Section ${String.fromCharCode(65 + i)}`;
+      if (sec.type !== "MCQ" && sec.type !== "SUBJECTIVE") upfrontErrors.push(`${label}: type must be MCQ or SUBJECTIVE`);
+      if (!sec.marksPerQuestion || sec.marksPerQuestion < 1) upfrontErrors.push(`${label}: marksPerQuestion must be at least 1`);
+      if (!sec.numQuestions || sec.numQuestions < 1) upfrontErrors.push(`${label}: numQuestions must be at least 1`);
+    }
+    if (upfrontErrors.length > 0) {
+      return reply.code(400).send({ success: false, error: { code: "SECTION_ERRORS", message: upfrontErrors.join(" • ") } });
+    }
+
+    // If no seed provided, generate one and RETURN it in the response so the
+    // caller can lock it in on Publish (matching the previewed paper exactly).
+    const effectiveSeed = body.seed ?? Math.floor(Math.random() * 0xFFFFFFFF);
+
+    const specs: SectionSpec[] = sections.map((s, i) => ({
+      title: s.title || `Section ${String.fromCharCode(65 + i)}`,
+      type: s.type,
+      subType: s.subType,
+      attemptAny: s.attemptAny,
+      instructions: s.instructions,
+      marksPerQuestion: s.marksPerQuestion,
+      numQuestions: s.numQuestions,
+      blankLines: s.blankLines,
+      scope: s.scope,
+      shuffle: s.shuffle,
+      distributeAcrossChapters: s.distributeAcrossChapters,
+      difficulty: s.difficulty,
+    }));
+    const sampleResult = await sampleComposition(prisma, specs, effectiveSeed);
+    if (sampleResult.errors.length > 0) {
+      return reply.code(400).send({ success: false, error: { code: "SECTION_ERRORS", message: sampleResult.errors.join(" • ") } });
+    }
+
+    const subjectNames = new Set<string>();
+    const chapterNames = new Set<string>();
+    const rendered: RenderedSection[] = sampleResult.sections.map((ss) => {
+      ss.questions.forEach((q: any) => {
+        q.subject?.name && subjectNames.add(q.subject.name);
+        q.chapter?.name && chapterNames.add(q.chapter.name);
+      });
+      return { sec: ss.spec as Section, questions: ss.questions };
+    });
+
+    const totalMarks = rendered.reduce((a, r) => a + r.questions.length * r.sec.marksPerQuestion, 0);
+    const totalQuestions = rendered.reduce((a, r) => a + r.questions.length, 0);
+    const totalTime = body.totalTime ?? Math.max(30, Math.ceil(totalMarks * 1.2));
+    const paperTitle = body.paperTitle || "Question Paper";
+    const date = body.date || "___________";
+    const subjectLabel = [...subjectNames].slice(0, 3).join(", ") + (subjectNames.size > 3 ? ` & ${subjectNames.size - 3} more` : "");
+    const chapterLabel = [...chapterNames].slice(0, 3).join(", ") + (chapterNames.size > 3 ? ` & ${chapterNames.size - 3} more` : "");
+
+    const ctx: RenderContext = {
+      orgName: org.orgName,
+      orgAddress: org.address,
+      orgLogoText: org.logoText,
+      examTitle: org.examTitle,
+      paperTitle,
+      date, totalTime, totalMarks, totalQuestions,
+      subjectLabel, chapterLabel,
+      footerText: body.footerText,
+      isAnswerKey: false,
+    };
+    const html = assemblePaper(layout, ctx, rendered, body.instructions ?? []);
+
+    // Trim the question payload — the wizard only needs id, text, difficulty,
+    // chapter, tags, subType, marks. It doesn't need option images / large blobs.
+    const sectionsPayload = rendered.map((r) => ({
+      title: r.sec.title,
+      type: r.sec.type,
+      subType: r.sec.subType ?? null,
+      marksPerQuestion: r.sec.marksPerQuestion,
+      numQuestions: r.questions.length,
+      attemptAny: r.sec.attemptAny ?? null,
+      instructions: r.sec.instructions ?? null,
+      questions: r.questions.map((q: any) => ({
+        id: q.id,
+        text: q.text,
+        subType: q.subType ?? null,
+        difficulty: q.difficulty,
+        chapter: q.chapter?.name ?? null,
+        yearTag: q.yearTag ?? null,
+        marksWeight: q.marksWeight ?? r.sec.marksPerQuestion,
+      })),
+    }));
+
+    return reply.send({
+      success: true,
+      data: {
+        seed: effectiveSeed,
+        totals: { totalMarks, totalQuestions, totalTime },
+        sections: sectionsPayload,
+        html,
+      },
+    });
+  });
+
   // Scope-stats endpoint (unchanged from before)
   app.get("/generate-paper/scope-stats", async (req, reply) => {
     const q = req.query as { chapterIds?: string; subjectIds?: string };
@@ -535,14 +694,23 @@ ${pages.map((p, i) => i === 0 ? p : `<div class="variant-break"></div>${p}`).joi
     if (!userId) {
       return reply.code(401).send({ success: false, error: { code: "UNAUTHORIZED", message: "Authentication required" } });
     }
-    // Scope stats only leak counts for chapters/subjects the caller owns
+    // Scope stats only leak counts for chapters/subjects the caller owns.
+    // Returns MCQ + total subjective + per-subType counts so the wizard can
+    // show accurate availability for every section shape in real time.
     const where: Prisma.QuestionWhereInput = { isActive: true, createdBy: userId };
     if (chapterIds.length > 0) where.chapterId = { in: chapterIds };
     else where.subjectId = { in: subjectIds };
-    const [mcq, subjective] = await Promise.all([
+    const [mcq, subjective, fillBlank, oneWord, shortAnswer, longAnswer] = await Promise.all([
       prisma.question.count({ where: { ...where, type: "MCQ" } }),
       prisma.question.count({ where: { ...where, type: "SUBJECTIVE" } }),
+      prisma.question.count({ where: { ...where, type: "SUBJECTIVE", subType: "FILL_BLANK" } }),
+      prisma.question.count({ where: { ...where, type: "SUBJECTIVE", subType: "ONE_WORD" } }),
+      prisma.question.count({ where: { ...where, type: "SUBJECTIVE", subType: "SHORT_ANSWER" } }),
+      prisma.question.count({ where: { ...where, type: "SUBJECTIVE", subType: "LONG_ANSWER" } }),
     ]);
-    return reply.send({ success: true, data: { mcq, subjective } });
+    return reply.send({
+      success: true,
+      data: { mcq, subjective, FILL_BLANK: fillBlank, ONE_WORD: oneWord, SHORT_ANSWER: shortAnswer, LONG_ANSWER: longAnswer },
+    });
   });
 }

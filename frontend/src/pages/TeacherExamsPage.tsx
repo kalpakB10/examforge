@@ -6,6 +6,7 @@ import api from '../api'
 import SectionEditor from '../components/composition/SectionEditor'
 import { useReferenceData, fetchScopeCount } from '../components/composition/useReferenceData'
 import { newSection, type Section } from '../components/composition/types'
+import NewExamWizard from '../components/composition/NewExamWizard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -143,7 +144,7 @@ export default function TeacherExamsPage() {
         />
       )}
       {view === 'create' && (
-        <CreateExamWizard
+        <NewExamWizard
           onCreated={(id) => { setDetailExamId(id); setView('detail'); fetchExams() }}
           onCancel={() => setView('list')}
           showToast={showToast}

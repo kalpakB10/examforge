@@ -79,6 +79,9 @@ interface CreateBody {
   // Delivery
   deliverInteractive?: boolean;
   deliverPdf?: boolean;
+  shufflePapers?: number;
+  // Note: `seed` is already declared above (line ~68). The wizard sends the
+  // seed it approved in step 4 so the printed paper matches the sample.
 }
 
 // Interactive delivery uses only MCQ sections — filter them and sample with the shared engine.
@@ -172,6 +175,14 @@ export async function examRoutes(app: FastifyInstance, opts: ExamRouteOptions) {
     });
   });
 
+  // In-memory idempotency cache. Keyed by `${userId}:${IdempotencyKey}`.
+  // If the same key is seen twice within 5 min (typical double-click window
+  // or retry after a slow network), we replay the first response instead of
+  // creating a second exam. Small map; capped to 500 entries to bound memory.
+  const idempotencyCache = new Map<string, { at: number; response: any }>();
+  const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
+  const IDEMPOTENCY_MAX = 500;
+
   // ── POST /exams — unified create: compose + interactive + pdf ────────────
   app.post("/", async (req, reply) => {
     const userId = req.headers["x-user-id"] as string | undefined;
@@ -179,6 +190,19 @@ export async function examRoutes(app: FastifyInstance, opts: ExamRouteOptions) {
     if (!userId) {
       return reply.code(401).send({ success: false, error: { code: "UNAUTHORIZED", message: "Authentication required" } });
     }
+
+    // Idempotency guard — replay cached response if the same key was seen
+    // recently. Client sends `Idempotency-Key` header; we key the cache by
+    // (userId, key) so different users can't collide.
+    const idemKey = req.headers["idempotency-key"] as string | undefined;
+    if (idemKey) {
+      const cacheKey = `${userId}:${idemKey}`;
+      const cached = idempotencyCache.get(cacheKey);
+      if (cached && Date.now() - cached.at < IDEMPOTENCY_TTL_MS) {
+        return reply.code(201).send(cached.response);
+      }
+    }
+
     const body = req.body as CreateBody;
 
     if (!body.title?.trim()) {
@@ -330,7 +354,7 @@ export async function examRoutes(app: FastifyInstance, opts: ExamRouteOptions) {
       }, { jobId: `exam-${exam.id}` });
     }
 
-    return reply.code(201).send({
+    const successPayload = {
       success: true,
       data: {
         exam,
@@ -340,7 +364,18 @@ export async function examRoutes(app: FastifyInstance, opts: ExamRouteOptions) {
         } : null,
         pdf: deliverPdf ? { status: "PENDING", statusUrl: `/exams/${exam.id}/pdf-status` } : null,
       },
-    });
+    };
+    // Idempotency cache set on success so a retry with the same key returns
+    // this same exam id instead of creating a duplicate.
+    if (idemKey) {
+      // Bound the cache — evict the oldest entry if we hit the cap.
+      if (idempotencyCache.size >= IDEMPOTENCY_MAX) {
+        const oldestKey = idempotencyCache.keys().next().value;
+        if (oldestKey) idempotencyCache.delete(oldestKey);
+      }
+      idempotencyCache.set(`${userId}:${idemKey}`, { at: Date.now(), response: successPayload });
+    }
+    return reply.code(201).send(successPayload);
   });
 
   // ── GET /exams/:id/pdf-status — poll for PDF readiness ──────────────────

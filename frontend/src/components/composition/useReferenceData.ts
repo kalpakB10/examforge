@@ -45,10 +45,19 @@ export function useReferenceData(): ReferenceData {
   return { classes, subjectsByClass, chaptersBySubject, loadingClasses, loadClassSubjects, loadSubjectChapters }
 }
 
+/**
+ * Return the number of questions available in the chosen scope for the given
+ * type + sub-type. Used by the wizard to show live "X available" counters
+ * per section and go red when the ask exceeds availability.
+ *
+ * `subType` is ignored when type=MCQ. When type=SUBJECTIVE and subType is
+ * given, returns the count restricted to that sub-type only.
+ */
 export async function fetchScopeCount(
   scopeMode: 'chapters' | 'subjects',
   ids: string[],
-  type: 'MCQ' | 'SUBJECTIVE'
+  type: 'MCQ' | 'SUBJECTIVE',
+  subType?: 'FILL_BLANK' | 'ONE_WORD' | 'SHORT_ANSWER' | 'LONG_ANSWER',
 ): Promise<number | undefined> {
   if (ids.length === 0) return undefined
   const params = new URLSearchParams()
@@ -56,6 +65,9 @@ export async function fetchScopeCount(
   else params.set('subjectIds', ids.join(','))
   try {
     const r = await api.get(`/generate-paper/scope-stats?${params.toString()}`)
-    return type === 'MCQ' ? r.data?.data?.mcq : r.data?.data?.subjective
+    const d = r.data?.data ?? {}
+    if (type === 'MCQ') return d.mcq
+    if (subType) return d[subType]     // FILL_BLANK / ONE_WORD / etc
+    return d.subjective                 // any subjective
   } catch { return undefined }
 }
