@@ -9,6 +9,11 @@ interface Chapter {
   description?: string;
   order: number;
   _count?: { questions: number };
+  questionCounts?: {
+    mcq: number; subjective: number;
+    FILL_BLANK: number; ONE_WORD: number; SHORT_ANSWER: number; LONG_ANSWER: number;
+    total: number;
+  };
 }
 
 interface SubSubjectDetail {
@@ -301,8 +306,23 @@ export default function TeacherSubSubjectDetailPage() {
                       <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 text-xs font-bold shrink-0">{ch.order}</div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-gray-800 truncate">{ch.name}</p>
-                        <div className="flex flex-wrap gap-3 mt-1">
-                          <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{ch._count?.questions ?? 0} questions</span>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {(() => {
+                            const c = ch.questionCounts;
+                            if (!c) return <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{ch._count?.questions ?? 0} questions</span>;
+                            if (c.total === 0) return <span className="text-xs text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full italic">no questions yet</span>;
+                            return (
+                              <>
+                                {c.mcq > 0 && <span className="text-xs text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full font-semibold">{c.mcq} MCQ</span>}
+                                {c.FILL_BLANK   > 0 && <span className="text-xs text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full font-semibold">{c.FILL_BLANK} Fill</span>}
+                                {c.ONE_WORD     > 0 && <span className="text-xs text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full font-semibold">{c.ONE_WORD} 1-Word</span>}
+                                {c.SHORT_ANSWER > 0 && <span className="text-xs text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full font-semibold">{c.SHORT_ANSWER} Short</span>}
+                                {c.LONG_ANSWER  > 0 && <span className="text-xs text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full font-semibold">{c.LONG_ANSWER} Long</span>}
+                                <span className="text-xs text-gray-400 px-1">·</span>
+                                <span className="text-xs text-gray-500 px-1.5">total {c.total}</span>
+                              </>
+                            );
+                          })()}
                         </div>
                         {ch.description && <p className="text-xs text-gray-400 mt-0.5 truncate">{ch.description}</p>}
                       </div>

@@ -1,10 +1,6 @@
 import { FastifyInstance, FastifyPluginOptions } from "fastify";
 import { PrismaClient, Prisma } from "@prisma/client";
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
-import { parse as csvParse } from "csv-parse";
-import { StorageService, sanitizeFilename } from "../storage/StorageService";
+import { StorageService } from "../storage/StorageService";
 import { requireUser, assertOwnsSubject, assertOwnsChapter } from "../lib/authz";
 
 interface ChapterRouteOptions extends FastifyPluginOptions {
@@ -46,30 +42,52 @@ export async function chapterRoutes(
       },
     });
 
-    // Split counts by type in a single grouped query
+    // Split counts by type + sub-type (U.6). One extra groupBy is cheap and
+    // avoids N per-chapter roundtrips. Feeds the "42 MCQ · 5 Fill · 3 Short"
+    // chips shown next to each chapter on the class detail page.
     const chapterIds = chapters.map((c) => c.id);
     const grouped = chapterIds.length === 0 ? [] : await prisma.question.groupBy({
-      by: ["chapterId", "type"],
+      by: ["chapterId", "type", "subType"],
       where: { chapterId: { in: chapterIds }, isActive: true },
       _count: { _all: true },
     });
 
-    const countMap: Record<string, { mcq: number; subjective: number }> = {};
+    const countMap: Record<string, {
+      mcq: number; subjective: number;
+      FILL_BLANK: number; ONE_WORD: number; SHORT_ANSWER: number; LONG_ANSWER: number;
+    }> = {};
     for (const g of grouped) {
       if (!g.chapterId) continue;
-      if (!countMap[g.chapterId]) countMap[g.chapterId] = { mcq: 0, subjective: 0 };
-      if (g.type === "MCQ") countMap[g.chapterId].mcq = g._count._all;
-      else if (g.type === "SUBJECTIVE") countMap[g.chapterId].subjective = g._count._all;
+      if (!countMap[g.chapterId]) {
+        countMap[g.chapterId] = { mcq: 0, subjective: 0, FILL_BLANK: 0, ONE_WORD: 0, SHORT_ANSWER: 0, LONG_ANSWER: 0 };
+      }
+      const bucket = countMap[g.chapterId];
+      const c = g._count._all;
+      if (g.type === "MCQ") bucket.mcq += c;
+      else if (g.type === "SUBJECTIVE") {
+        bucket.subjective += c;
+        if (g.subType === "FILL_BLANK") bucket.FILL_BLANK += c;
+        else if (g.subType === "ONE_WORD") bucket.ONE_WORD += c;
+        else if (g.subType === "SHORT_ANSWER") bucket.SHORT_ANSWER += c;
+        else if (g.subType === "LONG_ANSWER") bucket.LONG_ANSWER += c;
+      }
     }
 
-    const enriched = chapters.map((c) => ({
-      ...c,
-      questionCounts: {
-        mcq: countMap[c.id]?.mcq ?? 0,
-        subjective: countMap[c.id]?.subjective ?? 0,
-        total: c._count.questions,
-      },
-    }));
+    const enriched = chapters.map((c) => {
+      const b = countMap[c.id];
+      return {
+        ...c,
+        questionCounts: {
+          mcq: b?.mcq ?? 0,
+          subjective: b?.subjective ?? 0,
+          FILL_BLANK: b?.FILL_BLANK ?? 0,
+          ONE_WORD: b?.ONE_WORD ?? 0,
+          SHORT_ANSWER: b?.SHORT_ANSWER ?? 0,
+          LONG_ANSWER: b?.LONG_ANSWER ?? 0,
+          total: c._count.questions,
+        },
+      };
+    });
 
     return reply.send({ success: true, data: { chapters: enriched } });
   });

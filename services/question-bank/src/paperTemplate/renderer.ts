@@ -5,6 +5,11 @@ export interface RenderContext {
   orgName: string;
   orgAddress?: string;
   orgLogoText?: string;
+  // If the org has an uploaded logo image (F.6), this URL wins over the
+  // text-only logo. Rendered as <img> in the paper header. When both are
+  // present, the image is preferred but logoText is kept as a fallback for
+  // browsers that fail to load the image (e.g. offline PDF viewers).
+  orgLogoUrl?: string;
   examTitle?: string;
   paperTitle: string;                 // "Question Paper" or "Answer Key"
   date: string;
@@ -34,7 +39,14 @@ function fieldValue(field: Field, ctx: RenderContext): string {
     case "text":            return field.text ? esc(field.text) : "";
     case "orgName":         return esc(ctx.orgName || "");
     case "orgAddress":      return ctx.orgAddress ? esc(ctx.orgAddress).replace(/\n/g, "<br>") : "";
-    case "orgLogo":         return esc(ctx.orgLogoText || "");
+    case "orgLogo":
+      // F.6: prefer an uploaded logo image if provided. Otherwise fall back
+      // to the short text-logo (2-4 letter monogram like "ABC"). Image is
+      // constrained to 60x60 so it never bullies the header layout.
+      if (ctx.orgLogoUrl && ctx.orgLogoUrl.trim()) {
+        return `<img src="${esc(ctx.orgLogoUrl)}" alt="logo" style="max-width:60px;max-height:60px;object-fit:contain;display:inline-block;vertical-align:middle;" />`;
+      }
+      return esc(ctx.orgLogoText || "");
     case "examTitle":       return esc(ctx.examTitle || "");
     case "paperTitle":      return esc(ctx.paperTitle);
     case "date":            return esc(ctx.date || "___________");

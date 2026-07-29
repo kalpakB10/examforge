@@ -18,7 +18,7 @@
  *   - Seed lock-in (the approved sample IS the printed paper)
  */
 
-import { useState, useEffect, useMemo, useRef, useCallback, FormEvent } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api';
 import type { Section, SubjectiveSubType } from './types';
@@ -29,14 +29,14 @@ import { PRESETS, getPreset } from './presets';
 
 // ─── Reused types (moved from TeacherExamsPage to keep the wizard self-contained)
 
-interface OrgSettings { orgName: string; address: string; logoText: string; examTitle: string }
+interface OrgSettings { orgName: string; address: string; logoText: string; logoUrl?: string; examTitle: string }
 interface PaperTemplate { id: string; name: string }
 interface ExamClassSummary {
   id: string;
   name: string;
   defaultTemplateId?: string | null;
   defaultOrgSnapshot?: {
-    orgName?: string; address?: string; logoText?: string;
+    orgName?: string; address?: string; logoText?: string; logoUrl?: string;
     examTitle?: string; footerText?: string;
   } | null;
 }
@@ -56,9 +56,9 @@ const AUTO_SAVE_INTERVAL_MS = 10_000;
 function loadOrgSettings(): OrgSettings {
   try {
     const raw = localStorage.getItem(ORG_KEY);
-    if (raw) return { orgName: '', address: '', logoText: '', examTitle: '', ...JSON.parse(raw) };
+    if (raw) return { orgName: '', address: '', logoText: '', logoUrl: undefined, examTitle: '', ...JSON.parse(raw) };
   } catch { /* ignore */ }
-  return { orgName: '', address: '', logoText: '', examTitle: '' };
+  return { orgName: '', address: '', logoText: '', logoUrl: undefined, examTitle: '' };
 }
 function saveOrgSettings(s: OrgSettings) { try { localStorage.setItem(ORG_KEY, JSON.stringify(s)); } catch { /* ignore */ } }
 
@@ -184,6 +184,7 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
           orgName: d.orgName ?? org.orgName ?? '',
           address: d.address ?? org.address ?? '',
           logoText: d.logoText ?? org.logoText ?? '',
+          logoUrl: d.logoUrl ?? org.logoUrl,
           examTitle: d.examTitle ?? org.examTitle ?? '',
         });
         if (d.footerText !== undefined) setFooterText(d.footerText ?? '');
@@ -1064,9 +1065,7 @@ function Step5Publish(props: any) {
                 placeholder="Half-Yearly 2026" className={inputCls} />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Logo text</label>
-              <input type="text" value={org.logoText} onChange={(e) => setOrg({ ...org, logoText: e.target.value })}
-                placeholder="ABC" maxLength={5} className={inputCls + ' font-bold text-center'} />
+              <LogoField org={org} setOrg={setOrg} inputCls={inputCls} />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Address</label>
@@ -1118,5 +1117,81 @@ function Step5Publish(props: any) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * F.6 — Logo field. Supports both an uploaded image (preferred) and a
+ * fallback 2-4 letter monogram. Upload is a one-shot POST /logos that
+ * returns a URL; we store that URL on the org snapshot and render it
+ * as an <img> on the printed paper. If the teacher clears the upload,
+ * we fall back to the text logo.
+ */
+function LogoField({ org, setOrg, inputCls }: {
+  org: OrgSettings;
+  setOrg: (o: OrgSettings) => void;
+  inputCls: string;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError('');
+    // Client-side sanity: 5 MB cap so the request doesn't waste time.
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Logo must be under 5 MB.');
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.post('/logos', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const url: string = res.data?.data?.url;
+      if (!url) throw new Error('No URL returned');
+      setOrg({ ...org, logoUrl: url });
+    } catch (err: any) {
+      setError(err?.response?.data?.error?.message ?? 'Upload failed.');
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  }
+
+  return (
+    <>
+      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+        Logo <span className="text-gray-400 font-normal normal-case">image or 2–5 letter monogram</span>
+      </label>
+      <div className="flex items-center gap-3">
+        <div className="w-12 h-12 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden shrink-0">
+          {org.logoUrl
+            ? <img src={org.logoUrl} alt="logo" className="max-w-full max-h-full object-contain" />
+            : <span className="text-xs font-bold text-gray-500">{org.logoText || 'LOGO'}</span>}
+        </div>
+        <div className="flex-1 flex items-center gap-2">
+          <input type="text" value={org.logoText} onChange={(e) => setOrg({ ...org, logoText: e.target.value })}
+            placeholder="ABC" maxLength={5} className={inputCls + ' font-bold text-center'} />
+          <label className="px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-100 cursor-pointer whitespace-nowrap">
+            {uploading ? '…' : org.logoUrl ? 'Replace' : 'Upload'}
+            <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleFile} className="hidden" />
+          </label>
+          {org.logoUrl && (
+            <button type="button" onClick={() => setOrg({ ...org, logoUrl: undefined })}
+              className="px-2 py-2 text-xs text-red-500 hover:text-red-700" title="Remove uploaded logo (falls back to text)">
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+      {org.logoUrl && (
+        <p className="text-xs text-gray-400 mt-1">✓ Uploaded — printed on paper. Text is the fallback if the image can't load.</p>
+      )}
+    </>
   );
 }

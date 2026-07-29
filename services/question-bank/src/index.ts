@@ -10,6 +10,7 @@ import { subjectRoutes } from "./routes/subjects";
 import { chapterRoutes } from "./routes/chapters";
 import { pdfRoutes } from "./routes/pdf";
 import { excelUploadRoutes } from "./routes/excelUpload";
+import { logoUploadRoutes } from "./routes/logoUpload";
 import { templateRoutes } from "./routes/template";
 import { generatePaperRoutes } from "./routes/generatePaper";
 import { classRoutes } from "./routes/classes";
@@ -78,6 +79,7 @@ app.register(classRoutes, { prefix: "/classes", prisma });
 app.register(subSubjectRoutes, { prefix: "/sub-subjects", prisma });
 app.register(teacherStatsRoutes, { prefix: "/teacher", prisma });
 app.register(paperTemplateRoutes, { prefix: "/paper-templates", prisma });
+app.register(logoUploadRoutes, { prefix: "/logos", storage });
 
 const start = async () => {
   try {

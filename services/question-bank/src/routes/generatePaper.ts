@@ -27,6 +27,8 @@ interface OrgHeader {
   orgName: string;
   address?: string;
   logoText?: string;
+  // F.6: uploaded logo image URL. Overrides logoText in the header when set.
+  logoUrl?: string;
   examTitle?: string;
 }
 
@@ -478,6 +480,7 @@ export async function generatePaperRoutes(app: FastifyInstance, opts: GeneratePa
       orgName: org.orgName,
       orgAddress: org.address,
       orgLogoText: org.logoText,
+      orgLogoUrl: org.logoUrl,
       examTitle: org.examTitle,
       paperTitle: isAnswerKey ? "Answer Key" : paperTitle,
       date, totalTime, totalMarks, totalQuestions,
@@ -652,6 +655,7 @@ ${pages.map((p, i) => i === 0 ? p : `<div class="variant-break"></div>${p}`).joi
       orgName: org.orgName,
       orgAddress: org.address,
       orgLogoText: org.logoText,
+      orgLogoUrl: org.logoUrl,
       examTitle: org.examTitle,
       paperTitle,
       date, totalTime, totalMarks, totalQuestions,

@@ -109,6 +109,8 @@ app.all("/teacher/stats", questionProxy);
 app.all("/teacher/activity", questionProxy);
 app.all("/paper-templates", questionProxy);
 app.all("/paper-templates/*", questionProxy);
+app.all("/logos", questionProxy);
+app.all("/logos/*", questionProxy);
 
 // Proxy routes — Exam Generator
 const examProxy = createProxyHandler(EXAM_GENERATOR_URL);

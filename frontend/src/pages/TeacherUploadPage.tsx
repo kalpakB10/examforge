@@ -24,6 +24,8 @@ interface ChapterItem { id: string; name: string; sub_subject_id?: string | null
 
 interface UploadResult {
   inserted?: number; failed?: number; errors?: Array<string | { row: number; reason: string }>; message?: string;
+  // U.5: preview of newly-inserted rows so teacher can spot-check + delete.
+  rows?: Array<{ id: string; text: string; type: string; subType: string | null; marksWeight: number }>;
 }
 
 type Intent = 'MCQ' | 'SUBJECTIVE';
@@ -575,6 +577,23 @@ function ErrorBox({ children }: { children: React.ReactNode }) {
 
 function ResultBox({ result }: { result: UploadResult }) {
   const failed = result.failed ?? 0;
+  // U.5: local delete state so removed rows disappear from the list without
+  // needing to re-fetch. If teacher removes a row we call DELETE on the
+  // backend and hide it from the preview.
+  const [deleted, setDeleted] = useState<Set<string>>(new Set());
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+
+  async function handleDelete(id: string) {
+    setPendingDelete(id);
+    try {
+      await api.delete(`/questions/${id}`);
+      setDeleted((prev) => { const next = new Set(prev); next.add(id); return next; });
+    } catch { /* silent — leave in list, teacher can retry */ }
+    finally { setPendingDelete(null); }
+  }
+
+  const visibleRows = (result.rows ?? []).filter((r) => !deleted.has(r.id));
+
   return (
     <div className={`border rounded-xl px-5 py-4 mb-4 ${failed ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
       <p className={`font-semibold text-sm mb-2 ${failed ? 'text-amber-800' : 'text-green-800'}`}>Upload Complete!</p>
@@ -589,6 +608,35 @@ function ResultBox({ result }: { result: UploadResult }) {
               <li key={i}>• {typeof err === 'string' ? err : `Row ${err.row}: ${err.reason}`}</li>
             ))}
           </ul>
+        </details>
+      )}
+
+      {/* U.5: preview + per-row delete */}
+      {visibleRows.length > 0 && (
+        <details className="mt-3" open={visibleRows.length <= 5}>
+          <summary className="text-xs text-gray-600 cursor-pointer font-semibold">
+            Review inserted questions ({visibleRows.length})
+          </summary>
+          <div className="mt-2 space-y-1 max-h-72 overflow-y-auto">
+            {visibleRows.map((r) => (
+              <div key={r.id} className="flex items-start gap-2 bg-white/60 border border-gray-200 rounded-lg px-3 py-2 text-xs">
+                <span className={`px-1.5 py-0.5 rounded font-semibold text-[10px] shrink-0 mt-0.5 ${
+                  r.type === 'MCQ' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {r.type === 'MCQ' ? 'MCQ' : (r.subType ?? 'SUBJ')}
+                </span>
+                <span className="flex-1 text-gray-800 min-w-0">{r.text}</span>
+                <span className="text-gray-400 shrink-0">{r.marksWeight}m</span>
+                <button
+                  onClick={() => handleDelete(r.id)}
+                  disabled={pendingDelete === r.id}
+                  className="text-red-500 hover:text-red-700 disabled:opacity-30 shrink-0"
+                  title="Remove this question">
+                  {pendingDelete === r.id ? '…' : '✕'}
+                </button>
+              </div>
+            ))}
+          </div>
         </details>
       )}
     </div>

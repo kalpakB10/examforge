@@ -264,17 +264,42 @@ export async function excelUploadRoutes(
       });
     }
 
-    let insertedCount = 0;
+    // U.5: individual creates instead of createMany so we can return the
+    // inserted IDs + a preview of each row. Enables "review + delete" in
+    // the upload UI. `$transaction` still gives all-or-nothing rollback.
+    let insertedRows: Array<{ id: string; text: string; type: string; subType: string | null; marksWeight: number }> = [];
     if (inserted.length > 0) {
-      await prisma.$transaction(async (tx) => {
-        const result = await tx.question.createMany({ data: inserted });
-        insertedCount = result.count;
+      insertedRows = await prisma.$transaction(async (tx) => {
+        const out: any[] = [];
+        for (const row of inserted) {
+          const q = await tx.question.create({
+            data: row,
+            select: { id: true, text: true, type: true, subType: true, marksWeight: true },
+          });
+          out.push(q);
+        }
+        return out;
       });
     }
 
     return reply.code(201).send({
       success: true,
-      data: { inserted: insertedCount, failed: errors.length, total: rawRows.length, errors },
+      data: {
+        inserted: insertedRows.length,
+        failed: errors.length,
+        total: rawRows.length,
+        errors,
+        // Truncate question text in the response to keep the payload small
+        // on very large uploads (500+ rows). Full text is still fetchable
+        // via GET /questions/:id from the review UI if the teacher clicks.
+        rows: insertedRows.map((r) => ({
+          id: r.id,
+          text: r.text.length > 140 ? r.text.slice(0, 140) + '…' : r.text,
+          type: r.type,
+          subType: r.subType,
+          marksWeight: r.marksWeight,
+        })),
+      },
     });
   });
 }
