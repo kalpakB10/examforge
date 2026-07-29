@@ -53,17 +53,55 @@ function detectSubType(row: any): SubjectiveSubType {
   return "SHORT_ANSWER";
 }
 
-function validateRow(row: any, idx: number): string | null {
+/**
+ * Row validator. `expectedType` narrows what shape the row must have:
+ *   - "MCQ": every row must look MCQ (4 options + correct); subjective rows fail
+ *   - "SUBJECTIVE": every row must have sub_type; MCQ-shaped rows fail
+ *   - undefined (legacy): use auto-detect (backwards-compat for the combined template)
+ */
+function validateRow(
+  row: any,
+  idx: number,
+  expectedType?: "MCQ" | "SUBJECTIVE",
+): string | null {
   if (!toStr(row.text || row.Text || row.question || row.Question)) {
-    return `Row ${idx}: text/question field is required`;
+    return `Row ${idx}: text/question is required`;
   }
-  const type = detectRowType(row);
+  const detected = detectRowType(row);
+  const type = expectedType ?? detected;
+
+  // Explicit-intent mismatch — help teacher catch mixed-up rows early.
+  if (expectedType && expectedType !== detected) {
+    if (expectedType === "MCQ") {
+      return `Row ${idx}: this row looks subjective (no options / no correct_option) but you're uploading MCQ. Remove sub_type and add 4 options + correct_option, or switch to the Subjective template.`;
+    }
+    return `Row ${idx}: this row looks like an MCQ but you're uploading Subjective. Remove options + correct_option, or switch to the MCQ template.`;
+  }
+
   if (type === "MCQ") {
     const co = toStr(row.correct_option || row.correct || row.answer || row.Answer || "").toUpperCase();
     if (!["A", "B", "C", "D"].includes(co)) {
       return `Row ${idx}: MCQ row must have correct_option A/B/C/D`;
     }
+    for (const opt of ["a", "b", "c", "d"]) {
+      const key = `option_${opt}`;
+      const val = toStr(row[key] || row[`Option_${opt.toUpperCase()}`] || row[opt.toUpperCase()] || row[`Option ${opt.toUpperCase()}`]);
+      if (!val) return `Row ${idx}: MCQ row missing option_${opt}`;
+    }
   }
+
+  if (type === "SUBJECTIVE") {
+    // Sub-type is required when the intent is subjective. Without it we can't
+    // format the question properly on the paper (blank vs one-line vs 4-line).
+    const st = toStr(
+      row.sub_type || row.subType || row["Sub Type"] ||
+      row["Question Type"] || row.question_type || ""
+    );
+    if (expectedType === "SUBJECTIVE" && !st) {
+      return `Row ${idx}: subjective row missing sub_type (FILL_BLANK / ONE_WORD / SHORT_ANSWER / LONG_ANSWER)`;
+    }
+  }
+
   const diff = toStr(row.difficulty || row.Difficulty || "MEDIUM").toUpperCase();
   if (!["EASY", "MEDIUM", "HARD"].includes(diff)) {
     return `Row ${idx}: difficulty must be EASY, MEDIUM, or HARD`;
@@ -99,6 +137,8 @@ export async function excelUploadRoutes(
 
     let subjectId: string | null = null;
     let chapterId: string | null = null;
+    let subSubjectId: string | null = null;
+    let expectedType: "MCQ" | "SUBJECTIVE" | undefined = undefined;
     let xlsxBuffer: Buffer | null = null;
 
     for await (const part of parts) {
@@ -107,6 +147,11 @@ export async function excelUploadRoutes(
       } else {
         if (part.fieldname === "subject_id") subjectId = part.value as string;
         if (part.fieldname === "chapter_id") chapterId = part.value as string;
+        if (part.fieldname === "sub_subject_id") subSubjectId = part.value as string;
+        if (part.fieldname === "expected_type") {
+          const v = String(part.value).toUpperCase();
+          if (v === "MCQ" || v === "SUBJECTIVE") expectedType = v;
+        }
       }
     }
 
@@ -167,14 +212,16 @@ export async function excelUploadRoutes(
       const row = rawRows[i];
       const rowNum = i + 2;
 
-      const validErr = validateRow(row, rowNum);
+      const validErr = validateRow(row, rowNum, expectedType);
       if (validErr) {
         errors.push({ row: rowNum, reason: validErr });
         continue;
       }
 
       const text = toStr(row.text || row.Text || row.question || row.Question);
-      const type = detectRowType(row);
+      // If the user declared an explicit intent, use that; otherwise fall
+      // back to auto-detection for the legacy combined template.
+      const type = expectedType ?? detectRowType(row);
       const optA = toStr(row.option_a || row.Option_A || row.A || row["Option A"]);
       const optB = toStr(row.option_b || row.Option_B || row.B || row["Option B"]);
       const optC = toStr(row.option_c || row.Option_C || row.C || row["Option C"]);
@@ -198,6 +245,7 @@ export async function excelUploadRoutes(
 
       inserted.push({
         subjectId,
+        subSubjectId: subSubjectId || null,
         chapterId: chapterId || null,
         createdBy,
         text,

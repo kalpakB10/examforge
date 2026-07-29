@@ -60,6 +60,7 @@ export async function questionRoutes(
       text,
       subject_id: subjectId,
       chapter_id: chapterId,
+      sub_subject_id: subSubjectId,
       correct_option: correctOption,
       difficulty,
       tags,
@@ -169,6 +170,7 @@ export async function questionRoutes(
     const question = await prisma.question.create({
       data: {
         subjectId,
+        subSubjectId: subSubjectId || null,
         chapterId: chapterId || null,
         text,
         type: questionType,

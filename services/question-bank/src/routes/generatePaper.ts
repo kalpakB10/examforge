@@ -290,10 +290,14 @@ function assembleAnswerKey(
     const typeLabel = SUBTYPE_LABEL[subType];
 
     if (subType === "FILL_BLANK" || subType === "ONE_WORD") {
-      // Compact numbered list: N. answer
+      // Compact numbered list: "N. answer". These sub-types genuinely need
+      // an expected_answer for the key to be useful — but if it's missing
+      // we render a soft dash rather than a scary placeholder.
       const items = r.questions.map((q, idx) => {
         const num = start + idx + 1;
-        const ans = q.expectedAnswer || "—";
+        const ans = q.expectedAnswer && String(q.expectedAnswer).trim()
+          ? q.expectedAnswer
+          : `<span style="color:#999;">— (evaluated by teacher)</span>`;
         return `<li class="ak-item"><span class="ak-num">${num}.</span> <span class="ak-ans">${ans}</span></li>`;
       }).join("");
       akHtml += `<div class="ak-section">
@@ -301,14 +305,21 @@ function assembleAnswerKey(
         <ol class="ak-list ak-compact">${items}</ol>
       </div>`;
     } else {
-      // SHORT_ANSWER / LONG_ANSWER — "Model answer" per question
+      // SHORT_ANSWER / LONG_ANSWER — usually graded manually, so a missing
+      // expected_answer is NOT an error. If teacher supplied a model answer,
+      // print it. Otherwise print a professional marks-only placeholder
+      // instead of scolding the teacher for not providing one.
       const items = r.questions.map((q, idx) => {
         const num = start + idx + 1;
-        const model = q.expectedAnswer || "<em>[Model answer not provided by teacher]</em>";
+        const marks = r.sec.marksPerQuestion;
+        const hasModel = q.expectedAnswer && String(q.expectedAnswer).trim();
+        const body = hasModel
+          ? `<div class="ak-model-label">Model answer / marking scheme:</div>
+             <div class="ak-model-body">${q.expectedAnswer}</div>`
+          : `<div class="ak-model-body ak-manual-grade">Graded manually · ${marks} mark${marks !== 1 ? "s" : ""} · marking scheme by evaluator</div>`;
         return `<li class="ak-item ak-item-block">
           <div class="ak-num-block"><span class="ak-num">${num}.</span> ${q.text}</div>
-          <div class="ak-model-label">Model answer / marking scheme:</div>
-          <div class="ak-model-body">${model}</div>
+          ${body}
         </li>`;
       }).join("");
       akHtml += `<div class="ak-section">
