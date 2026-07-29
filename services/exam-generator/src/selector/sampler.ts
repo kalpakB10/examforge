@@ -50,7 +50,13 @@ export interface SectionSpec {
   marksPerQuestion: number;
   numQuestions: number;
   blankLines?: number;
-  scope: { subjectIds?: string[]; chapterIds?: string[] };
+  // G.2: 4 scope shapes. Priority: chapters > subSubject > subjects > class.
+  scope: {
+    classId?: string;
+    subSubjectId?: string;
+    subjectIds?: string[];
+    chapterIds?: string[];
+  };
   shuffle?: boolean;
   distributeAcrossChapters?: boolean;   // when true and scope has multiple chapters, balance N across them
   difficulty?: DifficultyDist;          // optional target distribution
@@ -183,15 +189,20 @@ export async function sampleSection(
   const rng = makeRng(opts.seed ?? Math.floor(Math.random() * 0xFFFFFFFF));
   const label = spec.title || `Section`;
 
-  const hasChapters = spec.scope?.chapterIds?.length ?? 0;
-  const hasSubjects = spec.scope?.subjectIds?.length ?? 0;
-  if (!hasChapters && !hasSubjects) {
-    return { questions: [], error: `${label}: scope must include chapterIds or subjectIds` };
+  const hasChapters = (spec.scope?.chapterIds?.length ?? 0) > 0;
+  const hasSubSubject = !!spec.scope?.subSubjectId;
+  const hasSubjects = (spec.scope?.subjectIds?.length ?? 0) > 0;
+  const hasClass = !!spec.scope?.classId;
+  if (!hasChapters && !hasSubSubject && !hasSubjects && !hasClass) {
+    return { questions: [], error: `${label}: scope must include classId, subSubjectId, subjectIds, or chapterIds` };
   }
 
   const where: Prisma.QuestionWhereInput = { isActive: true, type: spec.type };
-  if (hasChapters) where.chapterId = { in: spec.scope.chapterIds! };
-  else where.subjectId = { in: spec.scope.subjectIds! };
+  // Most-specific scope wins.
+  if (hasChapters)         where.chapterId = { in: spec.scope.chapterIds! };
+  else if (hasSubSubject)  where.chapter = { subSubjectId: spec.scope.subSubjectId };
+  else if (hasSubjects)    where.subjectId = { in: spec.scope.subjectIds! };
+  else if (hasClass)       where.subject = { classId: spec.scope.classId };
   if (opts.excludeIds && opts.excludeIds.size > 0) where.id = { notIn: [...opts.excludeIds] };
 
   const candidates = await prisma.question.findMany({

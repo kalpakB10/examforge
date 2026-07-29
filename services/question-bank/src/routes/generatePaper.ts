@@ -44,7 +44,7 @@ interface Section {
   marksPerQuestion: number;
   numQuestions: number;
   blankLines?: number;
-  scope: { subjectIds?: string[]; chapterIds?: string[] };
+  scope: { classId?: string; subSubjectId?: string; subjectIds?: string[]; chapterIds?: string[] };
   shuffle?: boolean;
   distributeAcrossChapters?: boolean;
   difficulty?: { easy?: number; medium?: number; hard?: number };
@@ -366,6 +366,66 @@ async function renderPdf(html: string): Promise<Buffer | null> {
   }
 }
 
+/**
+ * Verify the caller owns every scope element referenced in the composition.
+ * Returns null on success, or a reply-payload object on failure.
+ * Handles all four scope shapes: classId, subSubjectId, subjectIds, chapterIds.
+ */
+async function ownershipScopeCheck(
+  prisma: PrismaClient,
+  sections: Section[],
+  userId: string,
+): Promise<{ code: number; message: string } | null> {
+  const classIds = new Set<string>();
+  const subSubjectIds = new Set<string>();
+  const subjectIds = new Set<string>();
+  const chapterIds = new Set<string>();
+  for (const s of sections) {
+    if (s.scope?.classId) classIds.add(s.scope.classId);
+    if (s.scope?.subSubjectId) subSubjectIds.add(s.scope.subSubjectId);
+    (s.scope?.subjectIds ?? []).forEach((id) => subjectIds.add(id));
+    (s.scope?.chapterIds ?? []).forEach((id) => chapterIds.add(id));
+  }
+
+  if (classIds.size > 0) {
+    const rows = await prisma.class.findMany({
+      where: { id: { in: [...classIds] } },
+      select: { id: true, createdBy: true },
+    });
+    if (rows.length !== classIds.size || rows.some((r) => r.createdBy !== userId)) {
+      return { code: 404, message: "Resource not found" };
+    }
+  }
+  if (subSubjectIds.size > 0) {
+    const rows = await prisma.subSubject.findMany({
+      where: { id: { in: [...subSubjectIds] } },
+      select: { id: true, subject: { select: { class: { select: { createdBy: true } } } } },
+    });
+    if (rows.length !== subSubjectIds.size || rows.some((r) => !r.subject?.class || r.subject.class.createdBy !== userId)) {
+      return { code: 404, message: "Resource not found" };
+    }
+  }
+  if (subjectIds.size > 0) {
+    const rows = await prisma.subject.findMany({
+      where: { id: { in: [...subjectIds] } },
+      select: { id: true, class: { select: { createdBy: true } } },
+    });
+    if (rows.length !== subjectIds.size || rows.some((r) => !r.class || r.class.createdBy !== userId)) {
+      return { code: 404, message: "Resource not found" };
+    }
+  }
+  if (chapterIds.size > 0) {
+    const rows = await prisma.chapter.findMany({
+      where: { id: { in: [...chapterIds] } },
+      select: { id: true, subject: { select: { class: { select: { createdBy: true } } } } },
+    });
+    if (rows.length !== chapterIds.size || rows.some((r) => !r.subject?.class || r.subject.class.createdBy !== userId)) {
+      return { code: 404, message: "Resource not found" };
+    }
+  }
+  return null;
+}
+
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function generatePaperRoutes(app: FastifyInstance, opts: GeneratePaperOptions) {
@@ -386,31 +446,11 @@ export async function generatePaperRoutes(app: FastifyInstance, opts: GeneratePa
       return reply.code(400).send({ success: false, error: { code: "NO_SECTIONS", message: "At least one section is required" } });
     }
 
-    // Every subject/chapter referenced in the composition must be owned by the caller
-    const requestedSubjectIds = new Set<string>();
-    const requestedChapterIds = new Set<string>();
-    for (const s of sections) {
-      (s.scope?.subjectIds ?? []).forEach((id) => requestedSubjectIds.add(id));
-      (s.scope?.chapterIds ?? []).forEach((id) => requestedChapterIds.add(id));
-    }
-    if (requestedSubjectIds.size > 0) {
-      const rows = await prisma.subject.findMany({
-        where: { id: { in: [...requestedSubjectIds] } },
-        select: { id: true, class: { select: { createdBy: true } } },
-      });
-      if (rows.length !== requestedSubjectIds.size || rows.some((r) => !r.class || r.class.createdBy !== userId)) {
-        return reply.code(404).send({ success: false, error: { code: "NOT_FOUND", message: "Resource not found" } });
-      }
-    }
-    if (requestedChapterIds.size > 0) {
-      const rows = await prisma.chapter.findMany({
-        where: { id: { in: [...requestedChapterIds] } },
-        select: { id: true, subject: { select: { class: { select: { createdBy: true } } } } },
-      });
-      if (rows.length !== requestedChapterIds.size || rows.some((r) => !r.subject?.class || r.subject.class.createdBy !== userId)) {
-        return reply.code(404).send({ success: false, error: { code: "NOT_FOUND", message: "Resource not found" } });
-      }
-    }
+    // Every class/sub-subject/subject/chapter referenced in the composition
+    // must be owned by the caller. Uses the shared ownershipScopeCheck helper
+    // so both /generate-paper and /generate-paper/preview stay in sync.
+    const ownErr = await ownershipScopeCheck(prisma, sections, userId);
+    if (ownErr) return reply.code(ownErr.code).send({ success: false, error: { code: "NOT_FOUND", message: ownErr.message } });
 
     // Load the chosen template (or fallback if none given)
     let layout: Layout = FALLBACK_LAYOUT;
@@ -555,40 +595,21 @@ ${pages.map((p, i) => i === 0 ? p : `<div class="variant-break"></div>${p}`).joi
       return reply.code(401).send({ success: false, error: { code: "UNAUTHORIZED", message: "Authentication required" } });
     }
     const body = req.body as PaperConfig;
-    const { org, sections, templateId } = body;
+    // Preview should not require org.orgName — the wizard calls this from Step 4
+    // (sample questions) BEFORE the teacher fills in the header at Step 5.
+    // Fall back to a placeholder so composition still renders. The real /generate-paper
+    // (final publish) enforces orgName elsewhere.
+    const org = body.org ?? {} as any;
+    if (!org.orgName) org.orgName = "Preview";
+    const { sections, templateId } = body;
 
-    if (!org?.orgName) {
-      return reply.code(400).send({ success: false, error: { code: "MISSING_ORG", message: "org.orgName is required" } });
-    }
     if (!Array.isArray(sections) || sections.length === 0) {
       return reply.code(400).send({ success: false, error: { code: "NO_SECTIONS", message: "At least one section is required" } });
     }
 
-    // Ownership check on scope (same as the main /generate-paper).
-    const requestedSubjectIds = new Set<string>();
-    const requestedChapterIds = new Set<string>();
-    for (const s of sections) {
-      (s.scope?.subjectIds ?? []).forEach((id) => requestedSubjectIds.add(id));
-      (s.scope?.chapterIds ?? []).forEach((id) => requestedChapterIds.add(id));
-    }
-    if (requestedSubjectIds.size > 0) {
-      const rows = await prisma.subject.findMany({
-        where: { id: { in: [...requestedSubjectIds] } },
-        select: { id: true, class: { select: { createdBy: true } } },
-      });
-      if (rows.length !== requestedSubjectIds.size || rows.some((r) => !r.class || r.class.createdBy !== userId)) {
-        return reply.code(404).send({ success: false, error: { code: "NOT_FOUND", message: "Resource not found" } });
-      }
-    }
-    if (requestedChapterIds.size > 0) {
-      const rows = await prisma.chapter.findMany({
-        where: { id: { in: [...requestedChapterIds] } },
-        select: { id: true, subject: { select: { class: { select: { createdBy: true } } } } },
-      });
-      if (rows.length !== requestedChapterIds.size || rows.some((r) => !r.subject?.class || r.subject.class.createdBy !== userId)) {
-        return reply.code(404).send({ success: false, error: { code: "NOT_FOUND", message: "Resource not found" } });
-      }
-    }
+    // Ownership check on scope (all 4 shapes) via shared helper.
+    const ownErr = await ownershipScopeCheck(prisma, sections, userId);
+    if (ownErr) return reply.code(ownErr.code).send({ success: false, error: { code: "NOT_FOUND", message: ownErr.message } });
 
     // Load template (or fallback).
     let layout: Layout = FALLBACK_LAYOUT;
@@ -699,22 +720,32 @@ ${pages.map((p, i) => i === 0 ? p : `<div class="variant-break"></div>${p}`).joi
 
   // Scope-stats endpoint (unchanged from before)
   app.get("/generate-paper/scope-stats", async (req, reply) => {
-    const q = req.query as { chapterIds?: string; subjectIds?: string };
+    const q = req.query as {
+      chapterIds?: string;
+      subjectIds?: string;
+      subSubjectId?: string;
+      classId?: string;
+    };
     const chapterIds = q.chapterIds ? q.chapterIds.split(",").filter(Boolean) : [];
     const subjectIds = q.subjectIds ? q.subjectIds.split(",").filter(Boolean) : [];
-    if (chapterIds.length === 0 && subjectIds.length === 0) {
+    const subSubjectId = q.subSubjectId?.trim() || null;
+    const classId = q.classId?.trim() || null;
+    if (chapterIds.length === 0 && subjectIds.length === 0 && !subSubjectId && !classId) {
       return reply.send({ success: true, data: { mcq: 0, subjective: 0 } });
     }
     const userId = req.headers["x-user-id"] as string | undefined;
     if (!userId) {
       return reply.code(401).send({ success: false, error: { code: "UNAUTHORIZED", message: "Authentication required" } });
     }
-    // Scope stats only leak counts for chapters/subjects the caller owns.
-    // Returns MCQ + total subjective + per-subType counts so the wizard can
+    // Scope stats only leak counts for scope elements the caller owns.
+    // Priority mirrors sampler.ts: chapters > subSubject > subjects > class.
+    // Returns MCQ + subjective totals + per-subType counts so the wizard can
     // show accurate availability for every section shape in real time.
     const where: Prisma.QuestionWhereInput = { isActive: true, createdBy: userId };
     if (chapterIds.length > 0) where.chapterId = { in: chapterIds };
-    else where.subjectId = { in: subjectIds };
+    else if (subSubjectId) where.chapter = { subSubjectId };
+    else if (subjectIds.length > 0) where.subjectId = { in: subjectIds };
+    else if (classId) where.subject = { classId };
     const [mcq, subjective, fillBlank, oneWord, shortAnswer, longAnswer] = await Promise.all([
       prisma.question.count({ where: { ...where, type: "MCQ" } }),
       prisma.question.count({ where: { ...where, type: "SUBJECTIVE" } }),

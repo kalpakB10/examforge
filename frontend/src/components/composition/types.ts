@@ -7,7 +7,12 @@ export interface ChapterItem {
   subSubject?: { id: string; name: string } | null;
 }
 
-export type ScopeMode = 'chapters' | 'subject' | 'subjects'
+// G.2: 4 scope shapes to match what real teachers ask for.
+//   class      → all questions in the class (across every subject)
+//   subSubject → all questions under one sub-subject (e.g. "SAT Math")
+//   subjects   → one or more whole subjects
+//   chapters   → one or more specific chapters (finest grain)
+export type ScopeMode = 'class' | 'subSubject' | 'subjects' | 'chapters'
 export type SectionType = 'MCQ' | 'SUBJECTIVE'
 export type SubjectiveSubType = 'FILL_BLANK' | 'ONE_WORD' | 'SHORT_ANSWER' | 'LONG_ANSWER'
 
@@ -28,8 +33,12 @@ export interface Section {
   numQuestions: number
   blankLines: number
   scopeMode: ScopeMode
-  subjectIds: string[]
-  chapterIds: string[]
+  // Payload for each scope shape. Only the fields relevant to the active
+  // scopeMode are consulted at send-time; the rest are ignored.
+  classId?: string           // scopeMode='class'
+  subSubjectId?: string      // scopeMode='subSubject'
+  subjectIds: string[]       // scopeMode='subjects'
+  chapterIds: string[]       // scopeMode='chapters'
   shuffle: boolean
   // Advanced sampling options
   distributeAcrossChapters: boolean

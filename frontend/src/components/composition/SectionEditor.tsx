@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { Section, SectionType, ScopeMode, ClassItem, SubjectItem, ChapterItem, DifficultyMix } from './types'
+import type { SubSubjectItem } from './useReferenceData'
 
 interface Props {
   section: Section
@@ -7,16 +8,32 @@ interface Props {
   classes: ClassItem[]
   subjectsByClass: Record<string, SubjectItem[]>
   chaptersBySubject: Record<string, ChapterItem[]>
+  subSubjectsBySubject: Record<string, SubSubjectItem[]>
   loadClassSubjects: (classId: string) => Promise<void>
   loadSubjectChapters: (subjectId: string) => Promise<void>
+  loadSubjectSubSubjects: (subjectId: string) => Promise<void>
   onChange: (patch: Partial<Section>) => void
   onRemove: () => void
   onDuplicate: () => void
   defaultClassId?: string        // pre-selects the section's Class dropdown (usually from wizard's Step 1 class)
 }
 
-export default function SectionEditor({ section, idx, classes, subjectsByClass, chaptersBySubject, loadClassSubjects, loadSubjectChapters, onChange, onRemove, onDuplicate, defaultClassId }: Props) {
+const SCOPE_LABELS: Record<ScopeMode, string> = {
+  class: 'Whole Class',
+  subSubject: 'Sub-Subject',
+  subjects: 'Whole Subject(s)',
+  chapters: 'Specific Chapters',
+}
+const SCOPE_HINTS: Record<ScopeMode, string> = {
+  class: 'Pull from every subject in the class',
+  subSubject: 'Pull from one sub-subject (e.g. SAT Math)',
+  subjects: 'Pull from one or more full subjects',
+  chapters: 'Pick individual chapters — finest control',
+}
+
+export default function SectionEditor({ section, idx, classes, subjectsByClass, chaptersBySubject, subSubjectsBySubject, loadClassSubjects, loadSubjectChapters, loadSubjectSubSubjects, onChange, onRemove, onDuplicate, defaultClassId }: Props) {
   const [selectedClass, setSelectedClass] = useState(defaultClassId ?? '')
+  const [subSubjectSubjectId, setSubSubjectSubjectId] = useState<string>('')
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   // If defaultClassId changes after mount (e.g. user goes back to Step 1 and switches class), sync
@@ -27,8 +44,20 @@ export default function SectionEditor({ section, idx, classes, subjectsByClass, 
 
   useEffect(() => {
     if (selectedClass) loadClassSubjects(selectedClass)
+    // Keep section.classId in sync when scopeMode='class'
+    if (section.scopeMode === 'class' && selectedClass && section.classId !== selectedClass) {
+      onChange({ classId: selectedClass })
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClass])
+  }, [selectedClass, section.scopeMode])
+
+  // Load sub-subjects for the subject picked in sub-subject mode
+  useEffect(() => {
+    if (section.scopeMode === 'subSubject' && subSubjectSubjectId) {
+      loadSubjectSubSubjects(subSubjectSubjectId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section.scopeMode, subSubjectSubjectId])
 
   const availableSubjects = selectedClass ? (subjectsByClass[selectedClass] ?? []) : []
   const scopeSubjects = section.scopeMode === 'chapters'
@@ -72,7 +101,16 @@ export default function SectionEditor({ section, idx, classes, subjectsByClass, 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Type</label>
-            <select value={section.type} onChange={(e) => onChange({ type: e.target.value as SectionType })}
+            <select value={section.type} onChange={(e) => {
+              const newType = e.target.value as SectionType;
+              // When switching to SUBJECTIVE, materialize the subType shown in
+              // the dropdown so the stored value matches what the teacher sees.
+              // Previously, subType stayed undefined and the backend silently
+              // fell back to SHORT_ANSWER, giving wrong answer-space layouts.
+              onChange(newType === 'SUBJECTIVE' && !section.subType
+                ? { type: newType, subType: 'SHORT_ANSWER' }
+                : { type: newType });
+            }}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
               <option value="MCQ">MCQ</option>
               <option value="SUBJECTIVE">Subjective</option>
@@ -160,24 +198,73 @@ export default function SectionEditor({ section, idx, classes, subjectsByClass, 
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Scope — Pull questions from</label>
           </div>
 
-          <div className="flex gap-2 mb-3">
-            {(['chapters', 'subjects'] as ScopeMode[]).map((m) => (
-              <button key={m} type="button" onClick={() => onChange({ scopeMode: m, chapterIds: [], subjectIds: [] })}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${section.scopeMode === m ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>
-                {m === 'chapters' ? 'Specific Chapters' : 'Whole Subject(s)'}
-              </button>
-            ))}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+            {(['class', 'subSubject', 'subjects', 'chapters'] as ScopeMode[]).map((m) => {
+              const active = section.scopeMode === m
+              return (
+                <button key={m} type="button" onClick={() => onChange({
+                  scopeMode: m,
+                  chapterIds: [],
+                  subjectIds: [],
+                  subSubjectId: undefined,
+                  classId: m === 'class' ? (selectedClass || undefined) : undefined,
+                })}
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all text-left ${active ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'}`}>
+                  <div>{SCOPE_LABELS[m]}</div>
+                  <div className={`text-[10px] font-normal mt-0.5 ${active ? 'text-indigo-100' : 'text-gray-400'}`}>{SCOPE_HINTS[m]}</div>
+                </button>
+              )
+            })}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Class</label>
-              <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
-                <option value="">— Select class —</option>
-                {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+          <div className="mb-3">
+            <label className="block text-xs text-gray-500 mb-1">Class</label>
+            <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+              <option value="">— Select class —</option>
+              {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+
+          {section.scopeMode === 'class' && selectedClass && (
+            <div className="text-xs text-gray-600 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+              Questions will be sampled from <span className="font-semibold">every subject</span> in this class.
+              {availableSubjects.length > 0 && <> Includes: {availableSubjects.map((s) => s.name).join(', ')}.</>}
             </div>
+          )}
+
+          {section.scopeMode === 'subSubject' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Subject</label>
+                <select value={subSubjectSubjectId}
+                  onChange={(e) => { setSubSubjectSubjectId(e.target.value); onChange({ subSubjectId: undefined }) }}
+                  disabled={!selectedClass}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-50 disabled:text-gray-400">
+                  <option value="">{selectedClass ? '— Select subject —' : 'Select class first'}</option>
+                  {availableSubjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Sub-Subject</label>
+                <select value={section.subSubjectId ?? ''}
+                  onChange={(e) => onChange({ subSubjectId: e.target.value || undefined })}
+                  disabled={!subSubjectSubjectId}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-50 disabled:text-gray-400">
+                  <option value="">
+                    {!subSubjectSubjectId ? 'Select subject first'
+                      : (subSubjectsBySubject[subSubjectSubjectId]?.length ?? 0) === 0 ? 'No sub-subjects available'
+                      : '— Select sub-subject —'}
+                  </option>
+                  {(subSubjectsBySubject[subSubjectSubjectId] ?? []).map((ss) => (
+                    <option key={ss.id} value={ss.id}>{ss.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {(section.scopeMode === 'subjects' || section.scopeMode === 'chapters') && (
             <div>
               <label className="block text-xs text-gray-500 mb-1">
                 {section.scopeMode === 'subjects' ? 'Subject(s) — pick one or more' : 'Subject(s) to load chapters from'}
@@ -201,7 +288,7 @@ export default function SectionEditor({ section, idx, classes, subjectsByClass, 
                 ))}
               </div>
             </div>
-          </div>
+          )}
 
           {section.scopeMode === 'chapters' && section.subjectIds.length > 0 && (
             <div className="mt-3">
@@ -246,9 +333,15 @@ export default function SectionEditor({ section, idx, classes, subjectsByClass, 
         {/* Advanced sampling options */}
         <div className="border-t border-gray-100 pt-3">
           <button type="button" onClick={() => setShowAdvanced((v) => !v)}
-            className="text-xs font-semibold text-gray-500 hover:text-indigo-600 flex items-center gap-1">
-            <svg className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7"/></svg>
-            Advanced sampling
+            className="w-full flex items-center justify-between text-left hover:bg-slate-50 rounded-lg px-2 py-1.5 -mx-1 transition-colors">
+            <span className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+              <svg className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7"/></svg>
+              Advanced sampling
+              <span className="text-[10px] text-gray-400 font-normal">— difficulty mix, fair chapter distribution, shuffle</span>
+            </span>
+            {(section.useDifficultyMix || section.distributeAcrossChapters || !section.shuffle) && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold">ON</span>
+            )}
           </button>
 
           {showAdvanced && (

@@ -7,9 +7,15 @@ const api = axios.create({
   timeout: 30000,
 });
 
-// Attach Bearer token from localStorage on every request
+// Attach Bearer token from sessionStorage on every request. Per-tab session
+// so a teacher tab and student tab in the same browser don't collide.
+// Falls back to legacy localStorage for one-time migration on next request.
+function readToken(): string | null {
+  return sessionStorage.getItem('auth_token') || localStorage.getItem('auth_token');
+}
+
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('auth_token');
+  const token = readToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -23,6 +29,8 @@ api.interceptors.response.use(
     const url: string = error.config?.url ?? '';
     const isAuthRoute = url.includes('/auth/login') || url.includes('/auth/register');
     if (error.response?.status === 401 && !isAuthRoute) {
+      sessionStorage.removeItem('auth_token');
+      sessionStorage.removeItem('auth_user');
       localStorage.removeItem('auth_token');
       localStorage.removeItem('auth_user');
       window.location.href = '/login';

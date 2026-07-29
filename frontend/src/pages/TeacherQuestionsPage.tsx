@@ -280,7 +280,7 @@ function QuestionCard({
           </div>
 
           {/* Meta row */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Difficulty</label>
               <select value={draft.difficulty} onChange={e => setDraft(d => ({ ...d, difficulty: e.target.value as Question['difficulty'] }))}

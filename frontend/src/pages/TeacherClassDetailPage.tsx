@@ -4,29 +4,11 @@ import TeacherShell from '../components/TeacherShell';
 import api from '../api';
 import type { Subject } from '../types';
 
-interface OrgSnapshot {
-  orgName?: string;
-  address?: string;
-  logoText?: string;
-  examTitle?: string;
-  footerText?: string;
-}
-
 interface ClassDetail {
   id: string;
   name: string;
   description?: string;
-  defaultTemplateId?: string | null;
-  defaultOrgSnapshot?: OrgSnapshot | null;
   subjects: (Subject & { _count?: { chapters: number; questions: number } })[];
-}
-
-interface PaperTemplate {
-  id: string;
-  name: string;
-  description: string | null;
-  isPreset: boolean;
-  layout: any;
 }
 
 const COLORS = ['bg-indigo-500', 'bg-violet-500', 'bg-blue-500', 'bg-teal-500', 'bg-green-500', 'bg-orange-500'];
@@ -182,17 +164,6 @@ export default function TeacherClassDetailPage() {
           </div>
         )}
 
-        {/* Paper defaults for this class — auto-applied when creating an exam under it */}
-        {!loading && !error && cls && (
-          <PaperDefaultsPanel
-            classId={cls.id}
-            initialTemplateId={cls.defaultTemplateId ?? ''}
-            initialOrg={cls.defaultOrgSnapshot ?? null}
-            onSaved={(patch) => setCls((prev) => prev ? { ...prev, ...patch } : prev)}
-            onToast={showToast}
-          />
-        )}
-
         {loading ? (
           <div className="flex justify-center py-24">
             <div className="text-center">
@@ -315,148 +286,5 @@ export default function TeacherClassDetailPage() {
         )}
       </div>
     </TeacherShell>
-  );
-}
-
-// ─── Paper defaults panel ─────────────────────────────────────────────────────
-// Collapsible card on the class detail page. Teacher sets the template + org details
-// once — every exam created under this class auto-loads these values.
-
-function PaperDefaultsPanel({
-  classId, initialTemplateId, initialOrg, onSaved, onToast,
-}: {
-  classId: string;
-  initialTemplateId: string;
-  initialOrg: OrgSnapshot | null;
-  onSaved: (patch: Partial<ClassDetail>) => void;
-  onToast: (msg: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(!initialTemplateId && !initialOrg?.orgName);
-  const [templates, setTemplates] = useState<PaperTemplate[]>([]);
-  const [templateId, setTemplateId] = useState(initialTemplateId);
-  const [org, setOrg] = useState<OrgSnapshot>(initialOrg ?? { orgName: '', address: '', logoText: '', examTitle: '', footerText: '' });
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    api.get('/paper-templates').then((r) => {
-      setTemplates(r.data?.data?.templates ?? []);
-    }).catch(() => setTemplates([]));
-  }, []);
-
-  const isConfigured = !!initialTemplateId && !!initialOrg?.orgName;
-
-  async function save() {
-    setSaving(true);
-    try {
-      await api.patch(`/classes/${classId}/defaults`, {
-        defaultTemplateId: templateId || null,
-        defaultOrgSnapshot: {
-          orgName: org.orgName?.trim() || '',
-          address: org.address?.trim() || '',
-          logoText: org.logoText?.trim() || '',
-          examTitle: org.examTitle?.trim() || '',
-          footerText: org.footerText?.trim() || '',
-        },
-      });
-      onSaved({ defaultTemplateId: templateId, defaultOrgSnapshot: org });
-      onToast('Paper defaults saved!');
-      setExpanded(false);
-    } catch { onToast('Could not save defaults.'); }
-    finally { setSaving(false); }
-  }
-
-  const inputCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white';
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <button type="button" onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors text-left">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isConfigured ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d={isConfigured ? "M5 13l4 4L19 7" : "M12 9v2m0 4h.01M12 3l9 16H3l9-16z"} />
-            </svg>
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-gray-900">Paper Defaults</p>
-            <p className="text-xs text-gray-500 truncate">
-              {isConfigured
-                ? `Template + org set — auto-loaded on every exam under ${initialOrg?.orgName ?? 'this class'}`
-                : 'Set once, save on every exam. Template + school details + footer.'}
-            </p>
-          </div>
-        </div>
-        <svg className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {expanded && (
-        <div className="border-t border-gray-100 p-6 space-y-5">
-          {/* Template picker */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Layout Template</label>
-            {templates.length === 0 ? (
-              <p className="text-sm text-gray-400">Loading templates…</p>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {templates.map((t) => {
-                  const selected = t.id === templateId;
-                  const accent = t.layout?.accentColor || '#4b5563';
-                  return (
-                    <button key={t.id} type="button" onClick={() => setTemplateId(t.id)}
-                      className={`text-left border-2 rounded-xl p-2 transition-all ${selected ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                      <div className="rounded border border-gray-100 bg-white p-1 h-8 flex items-center justify-center text-[8px] font-bold" style={{ color: accent, borderColor: accent }}>
-                        {t.name.toUpperCase()}
-                      </div>
-                      <p className="text-xs font-semibold text-gray-800 truncate mt-1">{t.name}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Org fields */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">School / Organisation Name</label>
-              <input type="text" value={org.orgName ?? ''} onChange={(e) => setOrg({ ...org, orgName: e.target.value })}
-                placeholder="e.g. Shri Sant Vidyalaya" className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Logo Text</label>
-              <input type="text" value={org.logoText ?? ''} onChange={(e) => setOrg({ ...org, logoText: e.target.value })}
-                placeholder="e.g. SSV" maxLength={5} className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Exam Sub-heading</label>
-              <input type="text" value={org.examTitle ?? ''} onChange={(e) => setOrg({ ...org, examTitle: e.target.value })}
-                placeholder="e.g. Unit Test Series 2026" className={inputCls} />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Address</label>
-              <textarea value={org.address ?? ''} onChange={(e) => setOrg({ ...org, address: e.target.value })}
-                rows={2} className={inputCls} />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                Footer Text <span className="text-gray-400 font-normal normal-case">(optional — one line shown at bottom of every page)</span>
-              </label>
-              <input type="text" value={org.footerText ?? ''} onChange={(e) => setOrg({ ...org, footerText: e.target.value })}
-                placeholder="e.g. Best of Luck — Do Your Best" className={inputCls} />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <button onClick={() => setExpanded(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-            <button onClick={save} disabled={saving}
-              className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 shadow-sm">
-              {saving ? 'Saving…' : 'Save Defaults'}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
   );
 }

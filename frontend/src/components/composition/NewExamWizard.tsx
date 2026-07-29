@@ -51,7 +51,14 @@ interface Props {
 
 const DRAFT_KEY = 'examforge-draft-wizard-v1';
 const ORG_KEY = 'examforge-org-settings';
+const DEFAULTS_KEY = 'examforge-my-defaults-v1';
 const AUTO_SAVE_INTERVAL_MS = 10_000;
+
+interface MyDefaults {
+  org?: OrgSettings;
+  templateId?: string;
+  footerText?: string;
+}
 
 function loadOrgSettings(): OrgSettings {
   try {
@@ -61,6 +68,16 @@ function loadOrgSettings(): OrgSettings {
   return { orgName: '', address: '', logoText: '', logoUrl: undefined, examTitle: '' };
 }
 function saveOrgSettings(s: OrgSettings) { try { localStorage.setItem(ORG_KEY, JSON.stringify(s)); } catch { /* ignore */ } }
+
+function loadMyDefaults(): MyDefaults {
+  try {
+    const raw = localStorage.getItem(DEFAULTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return {};
+}
+function saveMyDefaults(d: MyDefaults) { try { localStorage.setItem(DEFAULTS_KEY, JSON.stringify(d)); } catch { /* ignore */ } }
+function clearMyDefaults() { try { localStorage.removeItem(DEFAULTS_KEY); } catch { /* ignore */ } }
 
 function defaultExpiry(): string {
   // Local datetime-input format for 7 days from now.
@@ -104,7 +121,11 @@ function compositionPayload(sections: Section[]) {
     marksPerQuestion: s.marksPerQuestion,
     numQuestions: s.numQuestions,
     blankLines: s.type === 'SUBJECTIVE' ? s.blankLines : undefined,
-    scope: s.scopeMode === 'chapters' ? { chapterIds: s.chapterIds } : { subjectIds: s.subjectIds },
+    // G.2: 4 scope shapes serialise as different backend payload keys.
+    scope: s.scopeMode === 'chapters'   ? { chapterIds: s.chapterIds }
+         : s.scopeMode === 'subjects'   ? { subjectIds: s.subjectIds }
+         : s.scopeMode === 'subSubject' ? { subSubjectId: s.subSubjectId }
+         :                                 { classId: s.classId },
     shuffle: s.shuffle,
     distributeAcrossChapters: s.distributeAcrossChapters,
     difficulty: s.useDifficultyMix ? s.difficultyMix : undefined,
@@ -162,6 +183,16 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
   const idempotencyKeyRef = useRef<string>(crypto.randomUUID());
+  // Once the teacher has manually edited the org header, template, or footer
+  // (or loaded from a draft), NEVER let a class-switch silently overwrite
+  // their work. The class-defaults auto-fill only fires on the first classId
+  // pick when the header is still pristine.
+  const headerTouchedRef = useRef<boolean>(false);
+  // Same protection for duration: once the teacher types their own value in
+  // Step 1, don't let a preset silently overwrite it. The previous check
+  // (`durationMinutes === '60'`) couldn't distinguish "still default" from
+  // "intentionally set to 60".
+  const durationTouchedRef = useRef<boolean>(false);
 
   // ── Load templates + subjects when class changes ────────────────────────────
   useEffect(() => {
@@ -177,17 +208,23 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
     api.get(`/classes/${classId}`).then((r) => {
       const cls = r.data?.data as ExamClassSummary;
       setLoadedClass(cls);
-      if (cls?.defaultTemplateId) setTemplateId(cls.defaultTemplateId);
-      if (cls?.defaultOrgSnapshot) {
-        const d = cls.defaultOrgSnapshot;
+      // If the teacher has already customized the header, don't overwrite it
+      // when they switch classes — their edits win.
+      if (headerTouchedRef.current) return;
+      // Only source of auto-fill now: the teacher's own saved "my defaults"
+      // (class-level defaults were removed as they duplicated the wizard's
+      // per-exam setup less well).
+      const my = loadMyDefaults();
+      if (my.templateId) setTemplateId(my.templateId);
+      if (my.org) {
         setOrg({
-          orgName: d.orgName ?? org.orgName ?? '',
-          address: d.address ?? org.address ?? '',
-          logoText: d.logoText ?? org.logoText ?? '',
-          logoUrl: d.logoUrl ?? org.logoUrl,
-          examTitle: d.examTitle ?? org.examTitle ?? '',
+          orgName: my.org.orgName ?? org.orgName ?? '',
+          address: my.org.address ?? org.address ?? '',
+          logoText: my.org.logoText ?? org.logoText ?? '',
+          logoUrl: my.org.logoUrl ?? org.logoUrl,
+          examTitle: my.org.examTitle ?? org.examTitle ?? '',
         });
-        if (d.footerText !== undefined) setFooterText(d.footerText ?? '');
+        if (my.footerText !== undefined) setFooterText(my.footerText ?? '');
       }
     }).catch(() => setLoadedClass(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -258,16 +295,16 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
       if (d.title) setTitle(d.title);
       if (d.paperTitle) setPaperTitle(d.paperTitle);
       if (d.date) setDate(d.date);
-      if (d.durationMinutes) setDurationMinutes(d.durationMinutes);
+      if (d.durationMinutes) { setDurationMinutes(d.durationMinutes); durationTouchedRef.current = true; }
       if (d.examCode) setExamCode(d.examCode);
       if (d.expiresAt) setExpiresAt(d.expiresAt);
       if (typeof d.negativeMarking === 'boolean') setNegativeMarking(d.negativeMarking);
       if (d.negativeMarksValue) setNegativeMarksValue(d.negativeMarksValue);
       if (d.presetId) setPresetId(d.presetId);
       if (Array.isArray(d.sections) && d.sections.length > 0) setSections(d.sections);
-      if (d.org) setOrg(d.org);
-      if (typeof d.footerText === 'string') setFooterText(d.footerText);
-      if (d.templateId) setTemplateId(d.templateId);
+      if (d.org) { setOrg(d.org); headerTouchedRef.current = true; }
+      if (typeof d.footerText === 'string') { setFooterText(d.footerText); headerTouchedRef.current = true; }
+      if (d.templateId) { setTemplateId(d.templateId); headerTouchedRef.current = true; }
       if (typeof d.deliverInteractive === 'boolean') setDeliverInteractive(d.deliverInteractive);
       if (typeof d.deliverPdf === 'boolean') setDeliverPdf(d.deliverPdf);
       if (typeof d.generalInstructions === 'string') setGeneralInstructions(d.generalInstructions);
@@ -286,17 +323,31 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
   }
 
   // ── Live availability per section ──────────────────────────────────────────
+  // Recompute per-section counts whenever the section's scope or type changes.
+  // Supports all 4 scope shapes (class / subSubject / subjects / chapters).
   useEffect(() => {
-    const stale = sections.filter((s) => s.availableCount === undefined
-      && ((s.scopeMode === 'chapters' && s.chapterIds.length > 0)
-       || (s.scopeMode === 'subjects' && s.subjectIds.length > 0)));
+    const sectionIsReady = (s: Section): boolean => {
+      if (s.scopeMode === 'chapters')  return s.chapterIds.length > 0;
+      if (s.scopeMode === 'subjects')  return s.subjectIds.length > 0;
+      if (s.scopeMode === 'subSubject') return !!s.subSubjectId;
+      if (s.scopeMode === 'class')      return !!s.classId;
+      return false;
+    };
+    // Only kick off a fetch for sections that (a) have a ready scope, (b) don't
+    // yet have a count, AND (c) aren't already loading. Without the loadingCount
+    // guard, the setSections below re-triggers this effect, sees availableCount
+    // still undefined, and fires another request — an infinite loop hammering
+    // /scope-stats until the browser returns ERR_INSUFFICIENT_RESOURCES.
+    const stale = sections.filter((s) => s.availableCount === undefined && !s.loadingCount && sectionIsReady(s));
+    if (stale.length === 0) return;
     stale.forEach(async (sec) => {
       setSections((prev) => prev.map((s) => s.id === sec.id ? { ...s, loadingCount: true } : s));
-      const ids = sec.scopeMode === 'chapters' ? sec.chapterIds : sec.subjectIds;
-      const count = await fetchScopeCount(
-        sec.scopeMode === 'chapters' ? 'chapters' : 'subjects',
-        ids, sec.type, sec.subType,
-      );
+      let selector;
+      if (sec.scopeMode === 'chapters')       selector = { mode: 'chapters' as const, ids: sec.chapterIds };
+      else if (sec.scopeMode === 'subjects')  selector = { mode: 'subjects' as const, ids: sec.subjectIds };
+      else if (sec.scopeMode === 'subSubject') selector = { mode: 'subSubject' as const, id: sec.subSubjectId! };
+      else                                     selector = { mode: 'class' as const, id: sec.classId! };
+      const count = await fetchScopeCount(selector, sec.type, sec.subType);
       setSections((prev) => prev.map((s) => s.id === sec.id ? { ...s, availableCount: count ?? 0, loadingCount: false } : s));
     });
   }, [sections]);
@@ -312,8 +363,10 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
   }, 0);
   const hasAnyMcq = sections.some((s) => s.type === 'MCQ');
   const allSectionsHaveScope = sections.every((s) =>
-    (s.scopeMode === 'chapters' && s.chapterIds.length > 0)
-    || (s.scopeMode === 'subjects' && s.subjectIds.length > 0)
+    (s.scopeMode === 'chapters'   && s.chapterIds.length > 0)
+    || (s.scopeMode === 'subjects'   && s.subjectIds.length > 0)
+    || (s.scopeMode === 'subSubject' && !!s.subSubjectId)
+    || (s.scopeMode === 'class'      && !!s.classId)
   );
   const allSectionsHaveEnoughQuestions = sections.every((s) =>
     s.availableCount === undefined || s.availableCount >= s.numQuestions
@@ -333,14 +386,24 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
     if (!p) return;
     setPresetId(id);
     setSections(p.buildSections());
-    setDurationMinutes(String(p.durationMinutes));
+    // Only adopt the preset's suggested duration if the teacher hasn't typed
+    // their own value yet. The previous magic-string check couldn't tell "still
+    // default" from "intentionally 60".
+    if (!durationTouchedRef.current) setDurationMinutes(String(p.durationMinutes));
     // Reset any locked seed since the composition changed.
     setLockedSeed(null); setSamplePreview(null);
   }
 
   function addSection() { setSections((prev) => [...prev, newSection()]); setLockedSeed(null); setSamplePreview(null); }
   function updateSection(id: string, patch: Partial<Section>) {
-    setSections((prev) => prev.map((s) => s.id === id ? { ...s, ...patch, availableCount: undefined } : s));
+    // Only invalidate availableCount when something that actually affects the
+    // scope query changes. Typing a title or tweaking marks shouldn't nuke
+    // the count and trigger a re-fetch loop.
+    const scopeFields: (keyof Section)[] = ['scopeMode', 'classId', 'subSubjectId', 'subjectIds', 'chapterIds', 'type', 'subType'];
+    const scopeChanged = scopeFields.some((k) => k in patch);
+    setSections((prev) => prev.map((s) => s.id === id
+      ? { ...s, ...patch, ...(scopeChanged ? { availableCount: undefined, loadingCount: false } : {}) }
+      : s));
     setLockedSeed(null); setSamplePreview(null);
   }
   function removeSection(id: string) {
@@ -367,17 +430,6 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
       return next;
     });
     setLockedSeed(null); setSamplePreview(null);
-  }
-
-  async function saveAsClassDefault() {
-    if (!classId) return;
-    try {
-      await api.patch(`/classes/${classId}/defaults`, {
-        defaultTemplateId: templateId,
-        defaultOrgSnapshot: { ...org, footerText },
-      });
-      showToast('Saved as default for this class.');
-    } catch { showToast('Could not save class default.'); }
   }
 
   const previewPayload = useCallback((seed?: number) => ({
@@ -408,7 +460,8 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
     setPreviewLoading(true);
     try {
       const r = await api.post('/generate-paper/preview', previewPayload(lockedSeed ?? undefined));
-      setPreviewHtml(r.data?.data?.html ?? null);
+      const rawHtml = r.data?.data?.html as string | undefined;
+      setPreviewHtml(rawHtml ? wrapForA4Preview(rawHtml) : null);
       if (r.data?.data?.seed && !lockedSeed) setLockedSeed(r.data?.data?.seed);
     } catch { setPreviewHtml(null); }
     finally { setPreviewLoading(false); }
@@ -492,7 +545,7 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
             title={title} setTitle={setTitle}
             paperTitle={paperTitle} setPaperTitle={setPaperTitle}
             date={date} setDate={setDate}
-            durationMinutes={durationMinutes} setDurationMinutes={setDurationMinutes}
+            durationMinutes={durationMinutes} setDurationMinutes={(v: string) => { durationTouchedRef.current = true; setDurationMinutes(v); }}
             loadedClass={loadedClass}
             inputCls={inputCls}
           />
@@ -527,10 +580,10 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
         )}
         {step === 5 && (
           <Step5Publish
-            org={org} setOrg={setOrg}
-            footerText={footerText} setFooterText={setFooterText}
+            org={org} setOrg={(o: OrgSettings) => { headerTouchedRef.current = true; setOrg(o); }}
+            footerText={footerText} setFooterText={(v: string) => { headerTouchedRef.current = true; setFooterText(v); }}
             templates={templates}
-            templateId={templateId} setTemplateId={setTemplateId}
+            templateId={templateId} setTemplateId={(v: string) => { headerTouchedRef.current = true; setTemplateId(v); }}
             examCode={examCode} setExamCode={setExamCode}
             expiresAt={expiresAt} setExpiresAt={setExpiresAt}
             negativeMarking={negativeMarking} setNegativeMarking={setNegativeMarking}
@@ -543,8 +596,27 @@ export default function NewExamWizard({ onCreated, onCancel, showToast }: Props)
             previewHtml={previewHtml}
             previewLoading={previewLoading}
             onRefreshPreview={refreshPreviewHtml}
-            onSaveAsClassDefault={saveAsClassDefault}
-            classId={classId}
+            onSaveMyDefaults={() => {
+              saveMyDefaults({ org, templateId, footerText });
+              showToast('Saved as your default setup — pre-fills the next exam.');
+            }}
+            onLoadMyDefaults={() => {
+              const d = loadMyDefaults();
+              if (!d.org && !d.templateId && !d.footerText) {
+                showToast('No saved defaults yet — save one first.');
+                return;
+              }
+              if (d.org) setOrg({ ...org, ...d.org });
+              if (d.templateId) setTemplateId(d.templateId);
+              if (d.footerText !== undefined) setFooterText(d.footerText);
+              headerTouchedRef.current = true;
+              showToast('Loaded your saved defaults.');
+            }}
+            onClearMyDefaults={() => {
+              clearMyDefaults();
+              showToast('Cleared your default setup.');
+            }}
+            hasMyDefaults={!!loadMyDefaults().org?.orgName}
             totalMarks={totalMarks}
             totalQuestions={totalQuestions}
             lockedSeed={lockedSeed}
@@ -644,8 +716,7 @@ function Step1Foundation(props: {
 }) {
   const { classes, loadingClasses, subjects, classId, setClassId, subjectId, setSubjectId,
           title, setTitle, paperTitle, setPaperTitle, date, setDate,
-          durationMinutes, setDurationMinutes, loadedClass, inputCls } = props;
-  const classHasDefaults = !!loadedClass?.defaultTemplateId && !!loadedClass?.defaultOrgSnapshot?.orgName;
+          durationMinutes, setDurationMinutes, inputCls } = props;
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-5">
@@ -663,11 +734,6 @@ function Step1Foundation(props: {
           </select>
           {!loadingClasses && classes.length === 0 && (
             <p className="text-xs text-amber-600 mt-1">No classes yet. <Link to="/teacher/classes" className="underline">Create one</Link>.</p>
-          )}
-          {classId && classHasDefaults && (
-            <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1 mt-2">
-              ✓ Template + org auto-loaded from class defaults
-            </p>
           )}
         </div>
         <div>
@@ -796,8 +862,10 @@ function Step3Sections(props: {
               classes={refData.classes}
               subjectsByClass={refData.subjectsByClass}
               chaptersBySubject={refData.chaptersBySubject}
+              subSubjectsBySubject={refData.subSubjectsBySubject}
               loadClassSubjects={refData.loadClassSubjects}
               loadSubjectChapters={refData.loadSubjectChapters}
+              loadSubjectSubSubjects={refData.loadSubjectSubSubjects}
               onChange={(patch) => onUpdate(sec.id, patch)}
               onRemove={() => onRemove(sec.id)}
               onDuplicate={() => onDuplicate(sec.id)}
@@ -812,6 +880,43 @@ function Step3Sections(props: {
       </button>
     </div>
   );
+}
+
+// Wrap the server-rendered paper HTML so it renders as a scaled A4 page inside
+// the wizard iframe (instead of squishing to the iframe's narrow width).
+// The iframe's own width is variable, so we set the .page to fixed 794px (A4 at
+// 96dpi), and scale-to-fit via CSS custom property + a small resize script.
+function wrapForA4Preview(rawHtml: string): string {
+  const overlay = `
+    <style>
+      html, body { background: #eef2f7 !important; }
+      body { padding: 12px 0 !important; }
+      .page {
+        width: 794px !important;
+        min-height: 1123px;
+        background: #fff !important;
+        margin: 0 auto !important;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+        transform-origin: top center;
+      }
+    </style>
+    <script>
+      (function() {
+        function fit() {
+          var p = document.querySelector('.page');
+          if (!p) return;
+          var avail = document.documentElement.clientWidth - 16;
+          var scale = Math.min(1, avail / 794);
+          p.style.transform = 'scale(' + scale + ')';
+          p.style.marginBottom = ((scale - 1) * p.offsetHeight) + 'px';
+        }
+        window.addEventListener('load', fit);
+        window.addEventListener('resize', fit);
+        setTimeout(fit, 50);
+      })();
+    </script>`;
+  if (rawHtml.includes('</head>')) return rawHtml.replace('</head>', overlay + '</head>');
+  return overlay + rawHtml;
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
@@ -955,14 +1060,14 @@ function Step5Publish(props: any) {
     numVariants, setNumVariants,
     hasAnyMcq,
     previewHtml, previewLoading, onRefreshPreview,
-    onSaveAsClassDefault, classId,
+    onSaveMyDefaults, onLoadMyDefaults, onClearMyDefaults, hasMyDefaults,
     totalMarks, totalQuestions, lockedSeed,
     inputCls,
   } = props;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-      {/* Left: settings */}
+      {/* Left: settings — full width on mobile/tablet, 3/5 on desktop so preview fits */}
       <div className="lg:col-span-3 space-y-4">
         {/* Delivery */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -1037,14 +1142,26 @@ function Step5Publish(props: any) {
 
         {/* Template + org */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
             <h3 className="text-sm font-bold text-gray-900">Template & organisation header</h3>
-            {classId && (
-              <button onClick={onSaveAsClassDefault}
+            <div className="flex items-center gap-3">
+              {hasMyDefaults && (
+                <button type="button" onClick={onLoadMyDefaults}
+                  className="text-xs text-gray-600 hover:text-indigo-700 font-semibold">
+                  ↺ Load my defaults
+                </button>
+              )}
+              <button type="button" onClick={onSaveMyDefaults}
                 className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">
-                Save as class default →
+                💾 Save as my defaults
               </button>
-            )}
+              {hasMyDefaults && (
+                <button type="button" onClick={onClearMyDefaults}
+                  className="text-xs text-gray-400 hover:text-red-600">
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1093,7 +1210,7 @@ function Step5Publish(props: any) {
 
       {/* Right: A4 preview */}
       <div className="lg:col-span-2">
-        <div className="sticky top-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+        <div className="lg:sticky lg:top-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-bold text-gray-900">Live preview</h3>
             <button onClick={onRefreshPreview}
@@ -1104,8 +1221,7 @@ function Step5Publish(props: any) {
           </div>
           {previewHtml ? (
             <iframe title="preview" srcDoc={previewHtml}
-              className="w-full border border-gray-200 rounded-lg bg-white"
-              style={{ height: '600px' }} />
+              className="w-full border border-gray-200 rounded-lg bg-slate-100 h-[420px] sm:h-[600px] lg:h-[780px]" />
           ) : (
             <div className="text-center py-16 text-xs text-gray-400 border-2 border-dashed border-gray-200 rounded-lg">
               Click <strong>Generate preview</strong> to see the printed paper.

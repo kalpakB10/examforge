@@ -171,7 +171,7 @@ export default function ExamJoinPage() {
                   <span className="text-xs text-indigo-500">{examInfo.subject}</span>
                 </div>
                 <h3 className="font-bold text-gray-800 text-base mb-2">{examInfo.title}</h3>
-                <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="grid grid-cols-3 gap-2 text-center min-w-0">
                   <div className="bg-white rounded-lg p-2">
                     <p className="text-lg font-bold text-indigo-700">{examInfo.totalQuestions}</p>
                     <p className="text-xs text-gray-400">Questions</p>

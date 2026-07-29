@@ -813,7 +813,7 @@ function ManualSubjectiveForm({ selectedChapter, selectedSubject, selectedSubSub
 
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Question type <span className="text-red-500">*</span></label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(['FILL_BLANK', 'ONE_WORD', 'SHORT_ANSWER', 'LONG_ANSWER'] as SubjectiveSubType[]).map((t) => (
                 <button key={t} type="button" onClick={() => setSubType(t)}
                   className={`text-left rounded-xl border-2 p-3 transition ${
@@ -847,7 +847,7 @@ function ManualSubjectiveForm({ selectedChapter, selectedSubject, selectedSubSub
             <p className="text-xs text-gray-500 mt-1">{meta.expectedAnswerHint}</p>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Marks</label>
               <input type="number" value={qMarks} onChange={(e) => setQMarks(e.target.value)} min="1" className={inputCls} />

@@ -37,7 +37,7 @@ interface Section {
   marksPerQuestion: number;
   numQuestions: number;
   blankLines?: number;
-  scope: { subjectIds?: string[]; chapterIds?: string[] };
+  scope: { classId?: string; subSubjectId?: string; subjectIds?: string[]; chapterIds?: string[] };
   shuffle?: boolean;
   distributeAcrossChapters?: boolean;
   difficulty?: { easy?: number; medium?: number; hard?: number };
@@ -240,19 +240,40 @@ export async function examRoutes(app: FastifyInstance, opts: ExamRouteOptions) {
     const marksPerQuestion = body.marksPerQuestion ?? (mcqSections[0]?.marksPerQuestion ?? 1);
     const durationMinutes = body.durationMinutes ?? Math.max(30, Math.ceil(totalMarks * 1.2));
     const timerMode = body.timerMode ?? TimerMode.FIXED_DURATION;
-    const subjectId = body.subjectId ?? (mcqSections[0]?.scope?.subjectIds?.[0] ?? mcqSections[0]?.scope?.chapterIds?.[0]);
-    if (!subjectId) {
+    // Derive the exam's canonical subject_id. Every exam persists a single
+    // subjectId for reporting/rank calcs. Priority:
+    //   body.subjectId → first section's scope → resolved via section shape.
+    // Supports all four scope shapes (classId / subSubjectId / subjectIds / chapterIds).
+    let actualSubjectId = body.subjectId;
+    if (!actualSubjectId) {
+      const firstScope = mcqSections[0]?.scope ?? body.composition[0]?.scope;
+      if (firstScope?.chapterIds?.[0]) {
+        const ch = await prisma.chapter.findUnique({
+          where: { id: firstScope.chapterIds[0] },
+          select: { subjectId: true },
+        });
+        if (ch) actualSubjectId = ch.subjectId;
+      } else if (firstScope?.subSubjectId) {
+        const ss = await prisma.subSubject.findUnique({
+          where: { id: firstScope.subSubjectId },
+          select: { subjectId: true },
+        });
+        if (ss) actualSubjectId = ss.subjectId;
+      } else if (firstScope?.subjectIds?.[0]) {
+        actualSubjectId = firstScope.subjectIds[0];
+      } else if (firstScope?.classId) {
+        const sub = await prisma.subject.findFirst({
+          where: { classId: firstScope.classId },
+          select: { id: true },
+        });
+        if (sub) actualSubjectId = sub.id;
+      }
+    }
+    if (!actualSubjectId) {
       return reply.code(400).send({
         success: false,
-        error: { code: "MISSING_SUBJECT", message: "Cannot derive a subject for this exam. Set subjectId or include a section scoped to a subject." },
+        error: { code: "MISSING_SUBJECT", message: "Cannot derive a subject for this exam. Set subjectId or include a section with a class / sub-subject / subject / chapter scope." },
       });
-    }
-    // Resolve subject in case only a chapter id was given
-    let actualSubjectId = subjectId;
-    if (!body.subjectId && mcqSections[0]?.scope?.chapterIds?.length) {
-      const chId = mcqSections[0].scope.chapterIds[0];
-      const ch = await prisma.chapter.findUnique({ where: { id: chId }, select: { subjectId: true } });
-      if (ch) actualSubjectId = ch.subjectId;
     }
 
     // Code

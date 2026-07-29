@@ -47,13 +47,14 @@ export async function teacherStatsRoutes(app: FastifyInstance, opts: StatsOption
       prisma.question.count({ where: { subjectId: { in: subjectIds }, isActive: true } }),
       prisma.question.count({ where: { subjectId: { in: subjectIds }, isActive: true, type: "MCQ" } }),
       prisma.question.count({ where: { subjectId: { in: subjectIds }, isActive: true, type: "SUBJECTIVE" } }),
-      prisma.exam.count({ where: { createdBy: userId, status: "DRAFT" } }),
-      prisma.exam.count({ where: { createdBy: userId, status: "ACTIVE" } }),
-      prisma.exam.count({ where: { createdBy: userId, status: "COMPLETED" } }),
+      prisma.exam.count({ where: { createdBy: userId, status: "DRAFT", deletedAt: null } }),
+      prisma.exam.count({ where: { createdBy: userId, status: "ACTIVE", deletedAt: null } }),
+      prisma.exam.count({ where: { createdBy: userId, status: "COMPLETED", deletedAt: null } }),
       prisma.exam.findMany({
         where: {
           createdBy: userId,
           status: "ACTIVE",
+          deletedAt: null,
           expiresAt: { gte: now, lte: in24h },
         },
         select: { id: true, title: true, examCode: true, expiresAt: true },
@@ -74,7 +75,7 @@ export async function teacherStatsRoutes(app: FastifyInstance, opts: StatsOption
 
     // Session/attempt aggregates (across teacher's exams)
     const teacherExamIds = (
-      await prisma.exam.findMany({ where: { createdBy: userId }, select: { id: true } })
+      await prisma.exam.findMany({ where: { createdBy: userId, deletedAt: null }, select: { id: true } })
     ).map((e) => e.id);
 
     const [totalSessions, sessionsToday, submittedTotal] = await Promise.all([
@@ -129,13 +130,13 @@ export async function teacherStatsRoutes(app: FastifyInstance, opts: StatsOption
     }
 
     const teacherExamIds = (
-      await prisma.exam.findMany({ where: { createdBy: userId }, select: { id: true } })
+      await prisma.exam.findMany({ where: { createdBy: userId, deletedAt: null }, select: { id: true } })
     ).map((e) => e.id);
 
     // Load in parallel: last 10 exams created, last 10 sessions started, last 10 questions uploaded
     const [recentExams, recentSessions, recentQuestions] = await Promise.all([
       prisma.exam.findMany({
-        where: { createdBy: userId },
+        where: { createdBy: userId, deletedAt: null },
         orderBy: { createdAt: "desc" },
         take: 10,
         select: { id: true, title: true, examCode: true, status: true, createdAt: true },
